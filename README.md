@@ -7,11 +7,11 @@
 Explore the hierarchy. Follow a connection. Open the source behind it.<br>
 One connected map for your browser, terminal, and coding agent.
 
-### [Open Skylense ↗](https://danielchen26.github.io/skylense-app/app/?example=autoresearch) &nbsp; · &nbsp; [Download offline ↓](https://github.com/danielchen26/skylense-app/releases/download/v0.2.0/skylense-0.2.0-web-preview.zip)
+### [Open Skylense ↗](https://danielchen26.github.io/skylense-app/app/?open=source) &nbsp; · &nbsp; [Download offline ↓](https://github.com/danielchen26/skylense-app/releases/download/v0.3.0/skylense-0.3.0-web-preview.zip)
 
 **No account · Offline-ready · Six themes · Source-linked**
 
-[Website](https://danielchen26.github.io/skylense-app/) · [Terminal & MCP](#terminal--mcp) · [中文](README.zh-CN.md) · [Release notes](https://github.com/danielchen26/skylense-app/releases/tag/v0.2.0)
+[Website](https://danielchen26.github.io/skylense-app/) · [Terminal & MCP](#terminal--mcp) · [中文](README.zh-CN.md) · [Release notes](https://github.com/danielchen26/skylense-app/releases/tag/v0.3.0)
 
 </div>
 
@@ -33,13 +33,28 @@ One connected map for your browser, terminal, and coding agent.
 
 ## Download. Unzip. Explore.
 
-1. **[Download the Web app](https://github.com/danielchen26/skylense-app/releases/download/v0.2.0/skylense-0.2.0-web-preview.zip).**
+1. **[Download the Web app](https://github.com/danielchen26/skylense-app/releases/download/v0.3.0/skylense-0.3.0-web-preview.zip).**
 2. Extract the `skylense-web` folder.
 3. Open **`standalone.html`** in a modern desktop browser.
 
 No Node.js installation, API key, account, or build step is needed for the Web app. Prefer to try it first? **[Open the live app](https://danielchen26.github.io/skylense-app/app/)**.
 
-> **0.2 public preview.** Three curated source maps are included. Import compatible Skylense JSON to use your own model; automatic indexing of arbitrary repositories is not included. The current app interface is primarily Chinese, with original source symbols and English getting-started guides.
+> **0.3 public preview.** Open your own folder, selected files, public GitHub URL or webpage. The static analyzer creates a bounded source map with a coverage report; Python/JS/TS imports, document headings and links get additional structure. Other files keep hierarchy and previews or metadata. The interface is primarily Chinese. [Supported sources and limits](guides/SOURCES.md).
+
+## Bring your own source
+
+In the Web app, choose **打开来源 / Open source**. Select a folder or files, enter a public URL, or paste text/HTML. Review the coverage report, then enter the same full workbench.
+
+With the Agent toolkit installed:
+
+```sh
+skylense open /path/to/project
+skylense open https://github.com/owner/repo
+skylense open https://example.com
+skylense analyze /path/to/project --output architecture.json
+```
+
+The toolkit includes the complete Web app. Local `open` handles public webpages that block direct browser CORS; it never executes source code or website scripts. Existing Skylense JSON opens with its authored contracts, scenarios and source evidence intact. [Source guide](guides/SOURCES.md) · [Agent model authoring](guides/MODEL.md).
 
 ## Start with a real AI codebase
 
@@ -67,10 +82,10 @@ Switch with **T** while preserving your selection, reading position, and zoom. S
 
 Use the same model in an interactive terminal, through JSON output, or from a compatible coding agent.
 
-Download the **[Agent & Terminal toolkit](https://github.com/danielchen26/skylense-app/releases/download/v0.2.0/skylense-0.2.0.tgz)**. With **Node.js 22+**, install the downloaded file:
+Download the **[Agent & Terminal toolkit](https://github.com/danielchen26/skylense-app/releases/download/v0.3.0/skylense-0.3.0.tgz)**. With **Node.js 22+**, install the downloaded file:
 
 ```sh
-npm install -g /absolute/path/to/skylense-0.2.0.tgz
+npm install -g /absolute/path/to/skylense-0.3.0.tgz
 skylense tui autoresearch
 ```
 
@@ -87,7 +102,7 @@ skylense trace autoresearch AR_train --depth 2 --json
 skylense config
 ```
 
-The six read-only MCP tools let an agent **list, search, inspect, traverse, read flows, and generate Web view links**. Copy the generated configuration into a client supporting **local stdio MCP**. Each client has its own configuration location.
+Eight MCP tools let an agent **analyze sources, export models, list, search, inspect, traverse, read scenarios, and open visual views**. Use `skylense config --root /path/to/project` to explicitly grant local source access. Custom/analyzed models open in the complete local workbench. Copy the generated configuration into a client supporting **local stdio MCP**. Each client has its own configuration location.
 
 [**Agent setup and local Web links →**](guides/AGENTS.md) · [**Terminal controls →**](guides/TERMINAL.md)
 
@@ -95,15 +110,15 @@ The six read-only MCP tools let an agent **list, search, inspect, traverse, read
 
 | Download | Includes | Requires |
 | --- | --- | --- |
-| **[Web ZIP](https://github.com/danielchen26/skylense-app/releases/download/v0.2.0/skylense-0.2.0-web-preview.zip)** | Interactive explorer, six themes, all three maps, offline HTML | Modern desktop browser |
-| **[Agent toolkit](https://github.com/danielchen26/skylense-app/releases/download/v0.2.0/skylense-0.2.0.tgz)** | CLI, interactive terminal, local MCP server | Node.js 22+ |
-| **[Checksums](https://github.com/danielchen26/skylense-app/releases/download/v0.2.0/SHA256SUMS.txt)** | SHA-256 for both files | Optional integrity check |
+| **[Web ZIP](https://github.com/danielchen26/skylense-app/releases/download/v0.3.0/skylense-0.3.0-web-preview.zip)** | Interactive explorer, six themes, all three maps, offline HTML | Modern desktop browser |
+| **[Agent toolkit](https://github.com/danielchen26/skylense-app/releases/download/v0.3.0/skylense-0.3.0.tgz)** | Source analyzer, full local Web app, CLI, terminal and MCP server | Node.js 22+ |
+| **[Checksums](https://github.com/danielchen26/skylense-app/releases/download/v0.3.0/SHA256SUMS.txt)** | SHA-256 for both files | Optional integrity check |
 
 Choose the named ZIP or TGZ above, rather than GitHub's automatically generated source archives. A native macOS installer is not included yet.
 
 ## Local by design. Explicit when connected.
 
-The Web app runs offline. Imported JSON stays in the current page session. The CLI and MCP server read bundled models or a JSON file you explicitly select; they do not execute the displayed repositories.
+The Web app runs offline. Imported JSON stays in the current page session. The CLI reads selected folders/files or public URLs. MCP local source access is confined to an explicitly configured root. Neither executes the displayed repositories or page scripts.
 
 A connected agent receives query results and may send them to its configured model provider. Browser imports do not automatically sync to that process. [Data boundaries](PRIVACY.md).
 

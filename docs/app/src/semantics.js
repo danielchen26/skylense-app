@@ -25,6 +25,7 @@
   }
 
   const relations = Object.freeze({
+    links: entry('links', '文档链接', '链接', '来源文本中明确写出的超链接或文档引用；不表示程序调用或目标页面已被读取。', 'search', '#155E75', '#A5F3FC', '6 3 1 3'),
     calls: entry('calls', '静态调用', '调用', '源码中可见的调用；动态分派仍以成员说明为准，不代表运行观测。', 'arrow', '#14532D', '#BBF7D0', '14 2'),
     types: entry('types', '类型契约', '类型', '类型注解或数据契约引用，从使用者指向结构定义。', 'code', '#5B21B6', '#DDD6FE', '8 3 2 3'),
     constructs: entry('constructs', '对象构建', '构建', '源码中实例化或建立对象的关系。', 'box', '#854D0E', '#FDE68A', '12 3 3 3'),
@@ -86,6 +87,9 @@
   // Node color describes the node kind. It is independent of relation color
   // and of the separate group/boundary palette in the imported graph.
   const nodes = Object.freeze({
+    file: entry('file', '文件', '文件', '来源文件或二进制元数据；分析状态和覆盖范围见详情。', 'document', '#475569', '#CBD5E1'),
+    document: entry('document', '文档与章节', '文档', '采集到的文档、页面内容或明确的标题章节。', 'document', '#6D28D9', '#DDD6FE'),
+    external: entry('external', '外部引用', '引用', '原文链接指向的目标；未读取目标时会明确标记，不能据此推断目标内容。', 'external', '#0E7490', '#A5F3FC'),
     function: entry('function', '函数', '函数', '源码函数或方法入口。', 'code', '#6D28D9', '#C4B5FD'),
     class: entry('class', '类', '类', '源码类及其状态和方法；详细接口见函数卡。', 'box', '#0369A1', '#7DD3FC'),
     container: entry(

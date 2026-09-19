@@ -58,7 +58,7 @@ node bin/skylense.mjs tree custom --model /absolute/path/to/model.json
 node bin/skylense.mjs inspect custom COMPONENT_ID --model /absolute/path/to/model.json --json
 ```
 
-Only an explicitly supplied `.json` architecture model is accepted. It is schema-validated by the shared workspace loader and is never evaluated as code. The CLI does not scan source folders or upload files. Model text is stripped of terminal control sequences, OSC hyperlinks and bidirectional formatting before text display. JSON mode emits ordinary JSON escaping rather than terminal markup.
+The query commands use a validated `.json` architecture model. To create one from a folder/file/URL, run `skylense analyze <source> --output model.json`; to analyze and open the complete visual workbench, run `skylense open <source>`. Source programs are not executed, and local files are not uploaded. Public URL analysis makes requests to the selected source. Model text is stripped of terminal control sequences, OSC hyperlinks and bidirectional formatting before text display. JSON mode emits ordinary JSON escaping rather than terminal markup.
 
 ## Agent integration
 

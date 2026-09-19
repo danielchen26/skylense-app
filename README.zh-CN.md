@@ -5,18 +5,18 @@
 
 逐层展开结构、追踪上下游、查看源码依据。网页、终端与 Agent 共用同一份模型。
 
-### [在线体验 ↗](https://danielchen26.github.io/skylense-app/app/?example=autoresearch) · [下载离线版 ↓](https://github.com/danielchen26/skylense-app/releases/download/v0.2.0/skylense-0.2.0-web-preview.zip)
+### [在线体验 ↗](https://danielchen26.github.io/skylense-app/app/?example=autoresearch) · [下载离线版 ↓](https://github.com/danielchen26/skylense-app/releases/download/v0.3.0/skylense-0.3.0-web-preview.zip)
 
 无需账号 · 可离线运行 · 六套主题 · 源码依据
 
-[English](README.md) · [产品主页](https://danielchen26.github.io/skylense-app/) · [发布记录](https://github.com/danielchen26/skylense-app/releases/tag/v0.2.0)
+[English](README.md) · [产品主页](https://danielchen26.github.io/skylense-app/) · [发布记录](https://github.com/danielchen26/skylense-app/releases/tag/v0.3.0)
 </div>
 
 ![Skylense 的真实 autoresearch 流程界面](docs/assets/captures/theme-midnight.png)
 
 ## 三步开始
 
-1. 下载 **[Web ZIP](https://github.com/danielchen26/skylense-app/releases/download/v0.2.0/skylense-0.2.0-web-preview.zip)**。
+1. 下载 **[Web ZIP](https://github.com/danielchen26/skylense-app/releases/download/v0.3.0/skylense-0.3.0-web-preview.zip)**。
 2. 解压 `skylense-web` 文件夹。
 3. 在现代桌面浏览器中打开 **`standalone.html`**。
 
@@ -32,21 +32,27 @@
 
 ![真实界面的关系流动示意](docs/assets/captures/flow.gif)
 
-当前包含 **autoresearch、LangGraph、vLLM** 三个精选源码模型。它们覆盖固定版本的核心路径，不是全仓库自动扫描结果；动画也不是程序运行轨迹。可导入兼容的 Skylense JSON，当前不支持直接扫描任意代码目录。
+现在可以点击 **打开来源**，选择文件夹、多个文件，输入公开 GitHub / 网页 URL，或粘贴文本 / HTML。分析报告显示覆盖范围、截断、未解析关系与元数据文件，确认后进入同一套完整工作台。
+
+自动分析提供目录层级、源码预览、Python / JS / TS 静态导入与声明，以及文档标题和链接；不声称理解任意语言的完整调用图，也不把动画当成运行记录。PDF、Office、图片、压缩包暂时仅展示元数据。[来源与限制](guides/SOURCES.md)。
+
+仍内置 **autoresearch、LangGraph、vLLM** 三个固定版本的精选语义模型供体验。
 
 ## 终端与 Agent
 
-下载 **[Agent / Terminal 工具包](https://github.com/danielchen26/skylense-app/releases/download/v0.2.0/skylense-0.2.0.tgz)**，需要 Node.js 22+：
+下载 **[Agent / Terminal 工具包](https://github.com/danielchen26/skylense-app/releases/download/v0.3.0/skylense-0.3.0.tgz)**，需要 Node.js 22+：
 
 ```sh
-npm install -g /absolute/path/to/skylense-0.2.0.tgz
-skylense tui autoresearch
-skylense config
+npm install -g /absolute/path/to/skylense-0.3.0.tgz
+skylense open /path/to/project
+skylense open https://github.com/owner/repo
+skylense open https://example.com
+skylense config --root /path/to/project
 ```
 
-`config` 打印本地 MCP 配置，复制到支持 stdio MCP 的客户端即可接入；不同客户端的配置位置不同。六个只读工具提供模型列表、搜索、对象详情、上下游、流程和网页定位链接。
+`config` 打印本地 MCP 配置，复制到支持 stdio MCP 的客户端即可接入；不同客户端的配置位置不同。八个工具包括来源分析、模型导出、列表、搜索、详情、上下游、场景与网页定位。Agent 可按[模型契约](guides/MODEL.md)补充有依据的语义。
 
-[Agent 接入与本地网页说明](guides/AGENTS.md) · [终端操作](guides/TERMINAL.md)。MCP 的网页定位链接需要另外在 `127.0.0.1:4173` 启动静态服务器；浏览器导入的模型不会自动同步到 Agent。
+[Agent 接入与本地网页说明](guides/AGENTS.md) · [终端操作](guides/TERMINAL.md)。工具包已包含完整网页。MCP 的 analyzed/custom 地图可以直接返回本地完整工作台链接；公开内置示例的旧链接可用 `skylense serve --port 4173`。浏览器导入的模型不会自动同步到 Agent。
 
 ## 数据与发布方式
 
