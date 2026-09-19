@@ -1,4 +1,4 @@
-/* Shared bounded source acquisition. Browser reads stay local; URL requests use
+/* Shared source acquisition. Browser reads stay local; URL requests use
    the caller's fetch implementation. Node supplies a public-network-only one. */
 (function (root) {
   'use strict';
@@ -22,16 +22,73 @@
     if (/^(localhost|.*\.localhost|.*\.local|127\.|10\.|0\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[)/.test(host)) throw error('公开网页读取不访问本机或内网地址。', 'PRIVATE_URL');
     url.hash = ''; return url;
   }
-  async function textResponse(response, limit, signal) {
+  async function readResponse(response, limit, signal) {
     check(signal);
     if (Number(response.headers?.get('content-length')) > limit) throw error('来源超过读取大小上限。', 'TOO_LARGE');
-    if (!response.body?.getReader) { const value = await response.text(); if (encoder.encode(value).length > limit) throw error('来源超过读取大小上限。', 'TOO_LARGE'); return value; }
+    if (!response.body?.getReader) { const text = await response.text(), bytes = encoder.encode(text); check(signal); if (bytes.length > limit) throw error('来源超过读取大小上限。', 'TOO_LARGE'); return { text, bytes }; }
     const reader = response.body.getReader(), chunks = []; let total = 0;
     try {
       for (;;) { check(signal); const { done, value } = await reader.read(); if (done) break; total += value.byteLength; if (total > limit) throw error('来源超过读取大小上限。', 'TOO_LARGE'); chunks.push(value); }
     } finally { await reader.cancel().catch(() => {}); }
     const bytes = new Uint8Array(total); let offset = 0; for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
-    try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { throw error('此来源不是 UTF-8 文本；可作为文件结构查看。', 'BINARY'); }
+    check(signal);
+    try { return { text: new TextDecoder('utf-8', { fatal: true }).decode(bytes), bytes }; } catch { throw error('此来源不是 UTF-8 文本；可作为文件结构查看。', 'BINARY'); }
+  }
+  async function textResponse(response, limit, signal) { return (await readResponse(response, limit, signal)).text; }
+  // Cache only public GitHub blobs. The fresh tree, not a cached branch name,
+  // determines which bytes are valid. These limits bound storage, never analysis.
+  const CACHE_FILE = 16 * 1024 * 1024, CACHE_TOTAL = 128 * 1024 * 1024, CACHE_ENTRIES = 4096;
+  let database;
+  function openCache() {
+    if (!database) database = new Promise((resolve, reject) => {
+      const request = root.indexedDB.open('skylense-public-github-v1', 1);
+      request.onupgradeneeded = () => { request.result.createObjectStore('blobs'); request.result.createObjectStore('entries', { keyPath: 'key' }); };
+      request.onsuccess = () => { request.result.onversionchange = () => { request.result.close(); database = null; }; resolve(request.result); };
+      request.onerror = () => { database = null; reject(request.error); };
+      request.onblocked = () => { database = null; reject(new Error('Source cache is blocked')); };
+    });
+    return database;
+  }
+  const browserSourceCache = {
+    async get(key) {
+      const db = await openCache();
+      return new Promise((resolve, reject) => {
+        const request = db.transaction('blobs', 'readonly').objectStore('blobs').get(key);
+        request.onsuccess = () => resolve(request.result || null); request.onerror = () => reject(request.error);
+      });
+    },
+    async set(key, bytes) {
+      if (bytes.byteLength > CACHE_FILE) return;
+      const db = await openCache();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(['blobs', 'entries'], 'readwrite'), blobs = tx.objectStore('blobs'), entries = tx.objectStore('entries');
+        const request = entries.getAll();
+        request.onsuccess = () => {
+          const records = request.result.filter(item => item.key !== key).sort((a, b) => a.savedAt - b.savedAt || a.key.localeCompare(b.key));
+          let total = records.reduce((sum, item) => sum + item.size, bytes.byteLength), count = records.length + 1;
+          for (const item of records) { if (total <= CACHE_TOTAL && count <= CACHE_ENTRIES) break; blobs.delete(item.key); entries.delete(item.key); total -= item.size; count--; }
+          blobs.put(bytes, key); entries.put({ key, size: bytes.byteLength, savedAt: Date.now() });
+        };
+        tx.oncomplete = () => resolve(); tx.onerror = tx.onabort = () => reject(tx.error || new Error('Source cache write failed'));
+      });
+    },
+  };
+  async function blobMatches(bytes, descriptor, cap) {
+    if (!(bytes instanceof Uint8Array) || bytes.byteLength > cap || (Number.isFinite(descriptor.size) && descriptor.size !== bytes.byteLength)) return false;
+    const header = encoder.encode(`blob ${bytes.byteLength}\0`), input = new Uint8Array(header.length + bytes.byteLength);
+    input.set(header); input.set(bytes, header.length);
+    const digest = await root.crypto.subtle.digest('SHA-1', input);
+    return Array.from(new Uint8Array(digest), n => n.toString(16).padStart(2, '0')).join('') === descriptor.sha;
+  }
+  async function cacheOperation(operation, signal) {
+    check(signal); let timer, abort;
+    try {
+      return await Promise.race([Promise.resolve().then(operation), new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Source cache timeout')), 1500);
+        abort = () => reject(signal.reason || error('读取已取消。', 'ABORTED'));
+        signal?.addEventListener('abort', abort, { once: true });
+      })]);
+    } finally { clearTimeout(timer); signal?.removeEventListener('abort', abort); check(signal); }
   }
   function baseReport() { return { warnings: [], skipped: [], scanned: 0, fetched: 0, truncated: false }; }
   function progress(options, detail) { options.onProgress?.(detail); }
@@ -90,10 +147,10 @@
       try {
         return await Promise.race([stopped, (async () => {
           let response;
-          try { response = await fetcher(target, { signal: controller.signal, credentials: 'omit', redirect: 'follow', headers: { Accept: 'application/json,text/html,text/plain,*/*' }, maxBytes: cap }); }
+          try { response = await fetcher(target, { signal: controller.signal, credentials: 'omit', cache: 'no-store', redirect: 'follow', headers: { Accept: 'application/json,text/html,text/plain,*/*' }, maxBytes: cap }); }
           catch (cause) { if (controller.signal.aborted) throw controller.signal.reason || cause; throw error('无法读取地址。网站可能限制跨域访问；可使用 skylense open <URL> 在本地读取，或上传已保存的页面。', 'FETCH_FAILED'); }
           if (!response.ok) throw error(response.status === 403 || response.status === 429 ? '来源访问受限或达到速率上限；请稍后重试，或下载到本地后打开文件夹。' : `来源返回 HTTP ${response.status}。`, 'HTTP_ERROR');
-          return { response, text: await textResponse(response, cap, controller.signal) };
+          return { response, ...await readResponse(response, cap, controller.signal) };
         })()]);
       } finally { clearTimeout(timer); options.signal?.removeEventListener('abort', onAbort); }
     }
@@ -120,13 +177,37 @@
       if (!Array.isArray(tree.tree)) throw error('GitHub 未返回文件清单。', 'INVALID_TREE');
       if (tree.truncated && complete) resourceFailure('GitHub 未返回完整文件树。');
       report.truncated = !!tree.truncated;
+      let sourceCache = options.cache === false || options.sourceCache === false || metadata.private !== false || !root.crypto?.subtle ? null : options.sourceCache || (root.indexedDB ? browserSourceCache : null), cacheWrites = true;
+      const cacheReport = report.sourceCache = { kind: 'verified-public-git-blobs', enabled: !!sourceCache, hits: 0, misses: 0, invalid: 0, stored: 0, downloaded: 0, errors: 0, unverified: 0 };
+      async function readBlob(file, cap = fileCap) {
+        const key = /^[a-f0-9]{40}$/.test(file.sha || '') && file.size <= CACHE_FILE ? file.sha : null;
+        if (sourceCache && key) {
+          try {
+            const bytes = await cacheOperation(() => sourceCache.get(key), options.signal);
+            if (bytes && await blobMatches(bytes, file, cap)) { check(options.signal); const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); cacheReport.hits++; return text; }
+            if (bytes) cacheReport.invalid++;
+            cacheReport.misses++;
+          } catch { check(options.signal); cacheReport.errors++; sourceCache = null; }
+        }
+        check(options.signal);
+        const safePath = file.path.split('/').map(encodeURIComponent).join('/');
+        const result = await request(`https://raw.githubusercontent.com/${owner}/${repo}/${commit.sha}/${safePath}`, cap);
+        cacheReport.downloaded++;
+        if (sourceCache && key && cacheWrites) {
+          try {
+            if (await blobMatches(result.bytes, file, cap)) { check(options.signal); await cacheOperation(() => sourceCache.set(key, result.bytes), options.signal); cacheReport.stored++; }
+            else cacheReport.unverified++;
+          } catch { check(options.signal); cacheReport.errors++; cacheWrites = false; }
+        }
+        check(options.signal); return result.text;
+      }
       const rules = [], prefetched = new Map();
       for (const name of ['.gitignore', '.skylenseignore']) {
         const descriptor = tree.tree.find(file => file.type === 'blob' && file.mode !== '120000' && file.path === name);
         if (!descriptor) continue;
         if (descriptor.size > 64 * 1024) { if (complete) resourceFailure('根目录忽略规则超过读取上限。'); report.warnings.push(`Could not read ${name}; ignore coverage is incomplete.`); continue; }
         try {
-          const text = (await request(`https://raw.githubusercontent.com/${owner}/${repo}/${commit.sha}/${name}`, 64 * 1024)).text;
+          const text = await readBlob(descriptor, 64 * 1024);
           prefetched.set(name, text); rules.push(...root.SkylenseIgnore.compile(text));
         } catch (cause) { check(options.signal); if (complete) throw cause; report.warnings.push(`Could not read ${name}; ignore coverage is incomplete.`); }
       }
@@ -149,7 +230,7 @@
           else if (file.size > fileCap || bytes + file.size > totalCap) { if (complete) resourceFailure('来源文本超过完整索引的大小上限。'); entry.status = 'size-limit'; report.truncated = true; }
           else {
             bytes += Number.isFinite(file.size) ? file.size : fileCap;
-            try { entry.text = prefetched.has(file.path) ? prefetched.get(file.path) : (await request(`https://raw.githubusercontent.com/${owner}/${repo}/${commit.sha}/${safePath}`)).text; report.fetched++; }
+            try { entry.text = prefetched.has(file.path) ? prefetched.get(file.path) : await readBlob(file); report.fetched++; }
             catch (cause) { if (options.signal?.aborted || complete) throw cause; entry.status = cause.code || 'fetch-failed'; if (report.skipped.length < 100) report.skipped.push({ path: file.path, reason: entry.status }); }
           }
           entries[index] = entry; finished++; progress(options, { phase: 'files', completed: finished, total: files.length, path: file.path });

@@ -8,17 +8,18 @@
     const nodes = new Map(model.nodes.map(n => [n.id, n]));
     const files = model.nodes.filter(n => n.sourceRole === "file");
     const byPath = new Map(files.map(n => [n.path, n]));
-    const adjacent = new Map(), incident = new Map(), connectedFiles = new Set();
+    const adjacent = new Map(), incident = new Map(), connectedFiles = new Set(), weights = new Map(), relationCounts = new Map();
     for (const edge of model.edges) {
+      relationCounts.set(edge.type, (relationCounts.get(edge.type) || 0) + 1);
       if (!nodes.has(edge.source) || !nodes.has(edge.target)) continue;
       for (const id of [edge.source, edge.target]) {
-        if (!incident.has(id)) incident.set(id, []);
-        incident.get(id).push(edge);
+        incident.set(id, (incident.get(id) || 0) + 1);
         const path = nodes.get(id).path;
         if (byPath.has(path)) connectedFiles.add(path);
       }
       if (!adjacent.has(edge.source)) adjacent.set(edge.source, []);
       adjacent.get(edge.source).push(edge);
+      weights.set(edge.source, (weights.get(edge.source) || 0) + (edge.type === "links" ? 1 : 4));
     }
     const unresolved = new Map();
     for (const item of report.unresolved || []) unresolved.set(item.file, (unresolved.get(item.file) || 0) + 1);
@@ -36,21 +37,20 @@
         ...n.analysis,
         status: n.analysis?.status || (!text ? "metadata-only" : supported.has(language) ? "static-source" : "preview-only"),
         language, symbols: n.functions?.length || 0,
-        directRelationships: incident.get(n.id)?.length || 0,
+        directRelationships: incident.get(n.id) || 0,
         unresolved: unresolved.get(n.path) || 0,
       };
     }
     report.languages = [...languages.values()].sort((a, b) => b.files - a.files || a.language.localeCompare(b.language));
     report.connectedFiles = connectedFiles.size;
     report.unconnectedFiles = files.length - connectedFiles.size;
-    report.relationshipTypes = Object.fromEntries([...new Set(model.edges.map(e => e.type))].sort().map(type => [type, model.edges.filter(e => e.type === type).length]));
+    report.relationshipTypes = Object.fromEntries([...relationCounts.keys()].sort().map(type => [type, relationCounts.get(type)]));
 
     // A guide is a bounded dependency neighborhood, not a topological ordering or a
     // promised directed path. Explicit edge IDs preserve branching, direction and evidence.
     const used = new Set(), flows = [];
     const seeds = [...adjacent.keys()].sort((a, b) => {
-      const weight = id => (adjacent.get(id) || []).reduce((sum, e) => sum + (e.type === "links" ? 1 : 4), 0);
-      return weight(b) - weight(a) || (nodes.get(a).path || a).localeCompare(nodes.get(b).path || b) || a.localeCompare(b);
+      return weights.get(b) - weights.get(a) || (nodes.get(a).path || a).localeCompare(nodes.get(b).path || b) || a.localeCompare(b);
     });
     for (const seed of seeds) {
       if (flows.length >= 12) break;

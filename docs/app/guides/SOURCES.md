@@ -17,7 +17,7 @@ Remote requests have timeouts and cancellation. An incomplete GitHub tree, unrea
 Install the downloaded toolkit with Node.js 22+:
 
 ```sh
-npm install --global ./skylense-0.4.0.tgz
+npm install --global ./skylense-0.4.1.tgz
 skylense open /path/to/project
 skylense open https://github.com/danielchen26/Gflownet
 skylense open https://example.com
@@ -70,3 +70,5 @@ CLI public requests reject private/reserved network destinations and nonstandard
 Hierarchy, same-level focus, category boundaries, orthogonal animated relationships, node/edge inspectors, source previews, upstream/downstream/global context, ordered-waypoint routes, comparison, saved views, themes, JSON/SVG export and presentation all consume the same model. Features have the same controls for imported and curated maps; the available relationships and scenarios reflect the evidence in each model.
 
 MCP returns source excerpts to your connected agent. Analysis responses retain exact diagnostic totals and return bounded samples; the complete report and model remain in the session and protected viewer. If a graph exceeds the raw model tool's response limit, use `skylense_view` or focused queries without reducing source coverage. Your agent host controls subsequent use of returned data. [Agent setup](AGENTS.md) · [Model authoring](MODEL.md)
+
+Public GitHub imports also reuse unchanged file bytes after fetching the latest commit and complete tree. Each cached file must match the current Git blob hash, including its original byte length. Renames and new commits rebuild source links; changed files are fetched again. Corrupt or unavailable caches fall back to network reading. This changes repeated-import latency, never the source selection, supported analysis or graph. Cache statistics appear in the analysis report.

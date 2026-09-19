@@ -82,8 +82,7 @@
   }
   function bound(value, fallback, ceiling) { return Number.isSafeInteger(value) && value > 0 ? Math.min(value, ceiling) : fallback; }
   function safeUrl(value) { try { const u = new URL(value); return ["http:", "https:"].includes(u.protocol) && !u.username && !u.password ? u.href : null; } catch { return null; } }
-  function truncateBytes(text, limit) {
-    const bytes = encoder.encode(text);
+  function truncateBytes(text, limit, bytes = encoder.encode(text)) {
     if (bytes.length <= limit) return { text, bytes: bytes.length, truncated: false };
     let stop = limit;
     while (stop > 0 && (bytes[stop] & 0xc0) === 0x80) stop--;
@@ -264,12 +263,23 @@
 
     const report = { ...(options.report && typeof options.report === "object" ? options.report : {}), analyzer: options.report?.syntax?.engine === "tree-sitter" ? "skylense-syntax-v1" : "skylense-static-v2", mode: complete ? "complete" : "preview", limits, inputEntries: entries.length, acceptedFiles: 0, analyzedFiles: 0, metadataOnlyFiles: 0, textBytes: 0, truncatedFiles: 0, skipped: Array.isArray(options.report?.skipped) ? options.report.skipped.slice(0, 1000) : [], warnings: Array.isArray(options.report?.warnings) ? options.report.warnings.slice(0, 1000) : [], unresolved: [], capabilities: { hierarchy: "Filesystem and source declaration boundaries for accepted paths; syntax nesting when a supported parser is available", symbols: "Supported syntax-tree declarations, lexical fallbacks and authored document headings; parser coverage is reported per file", relationships: "Included static import/link/resource references, declared external dependencies, and conservatively bound call sites", execution: false, aiInference: false, unsupported: "Other text is previewed; binary/PDF/image/archive contents are metadata only. Literal JS dynamic imports and re-exports are supported. Computed targets, dynamic member dispatch, notebook cells and arbitrary-language runtime call graphs are not resolved; configured path resolution depends on included manifests. Python bare calls may abstain for shadowing, ambiguity or missing sources." } };
     let symbolsUsed = 0, evidenceBytes = 0, evidenceTruncated = 0;
-    const sourceLines = new Map();
+    const sourceLines = new Map(), excerptCache = new Map();
     function evidence(file, text, start, end, url) {
       if (!sourceLines.has(file)) sourceLines.set(file, indexLines(text));
-      const item = lineEvidence(file, sourceLines.get(file), start, end, url), remaining = Math.max(0, limits.maxEvidenceBytes - evidenceBytes);
-      if (complete && remaining < Math.min(2048, encoder.encode(item.excerpt).length)) resourceFailure("Source evidence safety ceiling reached.");
-      const clipped = truncateBytes(item.excerpt, Math.min(2048, remaining)); evidenceBytes += clipped.bytes;
+      const key = file + "\0" + start + "\0" + end;
+      let cached = excerptCache.get(key);
+      if (!cached) {
+        const item = lineEvidence(file, sourceLines.get(file), start, end, url), bytes = encoder.encode(item.excerpt);
+        const clipped = truncateBytes(item.excerpt, 2048, bytes);
+        cached = { item: { ...item, excerpt: clipped.text }, byteLength: bytes.length, clipped };
+        // Scratch data belongs to this build only. Cap retained previews, not
+        // graph facts; every uncached reference follows the same extraction.
+        if (excerptCache.size < 8192) excerptCache.set(key, cached);
+      }
+      const item = { ...cached.item }, remaining = Math.max(0, limits.maxEvidenceBytes - evidenceBytes);
+      if (complete && remaining < Math.min(2048, cached.byteLength)) resourceFailure("Source evidence safety ceiling reached.");
+      const clipped = remaining >= 2048 ? cached.clipped : { ...truncateBytes(cached.clipped.text, remaining), truncated: cached.byteLength > remaining };
+      evidenceBytes += clipped.bytes;
       if (clipped.truncated) { item.excerpt = clipped.text; item.excerptTruncated = true; evidenceTruncated++; }
       return item;
     }
@@ -342,7 +352,7 @@
         } else { if (complete) resourceFailure("Source content safety ceiling reached."); noteSkip(entry.path, "Text budget exhausted; metadata retained"); }
       }
       if (text === null) { report.metadataOnlyFiles++; node.summary = `${info.kind} · ${entry.status || "metadata only"}${node.size !== null ? " · " + node.size + " bytes" : ""}`; node.analysis = { parser: "metadata-only", status: "metadata-only", diagnostics: [], unresolvedCount: 0 }; }
-      nodes.push(node); accepted.set(entry.path, { entry, node, text, facts });
+      nodes.push(node); accepted.set(entry.path, { entry, node, text, facts, url });
     }
     const fileMap = new Map([...accepted].filter(([, value]) => value.node));
     // Allocate declaration previews fairly across files. Documentation has its
@@ -355,7 +365,7 @@
       const rounds = Math.min(perFile, collection.reduce((n, [, value]) => Math.max(n, value.facts.symbols.length), 0));
       for (let index = 0; index < rounds && used < total; index++) for (const [path, value] of collection) {
         const symbol = value.facts.symbols[index]; if (!symbol || used >= total) continue;
-        value.node.functions.push({ name: symbol.name, qualifiedName: symbol.qualifiedName || symbol.name, kind: symbol.kind, description: `${value.facts.parser?.engine === "tree-sitter" ? "Syntax-tree" : "Lexical"} ${symbol.kind} declaration at line ${symbol.line}; no runtime or type-checking claim.`, inputs: [], outputs: [], evidenceStatus: "lexical-candidate", evidence: [evidence(path, value.text, symbol.line, symbol.endLine, safeUrl(value.entry.url))] }); used++;
+        value.node.functions.push({ name: symbol.name, qualifiedName: symbol.qualifiedName || symbol.name, kind: symbol.kind, description: `${value.facts.parser?.engine === "tree-sitter" ? "Syntax-tree" : "Lexical"} ${symbol.kind} declaration at line ${symbol.line}; no runtime or type-checking claim.`, inputs: [], outputs: [], evidenceStatus: "lexical-candidate", evidence: [evidence(path, value.text, symbol.line, symbol.endLine, value.url)] }); used++;
       }
       if (collection === documentFiles) documentSymbols = used;
       symbolsUsed += used;
@@ -392,7 +402,7 @@
           hierarchy.push(boundary); value.boundaries.set(index, boundary); symbolContainers++; symbolParent = boundary.id; symbolLevel++;
         }
         const bodyEnd = Math.max(symbol.endLine, Math.min(symbol.bodyEndLine || symbol.endLine, symbol.line + 31));
-        nodes.push({ id: symbolId, label: symbol.name, qualifiedName: preview.qualifiedName, path, kind: symbol.kind === "section" ? "document" : symbol.kind === "struct" ? "class" : ["class", "function", "interface", "module"].includes(symbol.kind) ? symbol.kind : "schema", sourceRole: "symbol", parentId: symbolParent, group: rootId, level: symbolLevel, summary: `${preview.qualifiedName} · ${symbol.kind} · lines ${symbol.line}–${symbol.bodyEndLine || symbol.endLine}. Static source declaration; not a runtime trace.`, functions: [], inputs: [], outputs: [], documentIds: [...value.node.documentIds], evidenceStatus: "source-text", evidence: [evidence(path, value.text, symbol.line, bodyEnd, safeUrl(value.entry.url))], sourceSpan: { lineStart: symbol.line, lineEnd: symbol.bodyEndLine || symbol.endLine }, ...(value.node.url ? { url: value.node.url } : {}) });
+        nodes.push({ id: symbolId, label: symbol.name, qualifiedName: preview.qualifiedName, path, kind: symbol.kind === "section" ? "document" : symbol.kind === "struct" ? "class" : ["class", "function", "interface", "module"].includes(symbol.kind) ? symbol.kind : "schema", sourceRole: "symbol", parentId: symbolParent, group: rootId, level: symbolLevel, summary: `${preview.qualifiedName} · ${symbol.kind} · lines ${symbol.line}–${symbol.bodyEndLine || symbol.endLine}. Static source declaration; not a runtime trace.`, functions: [], inputs: [], outputs: [], documentIds: [...value.node.documentIds], evidenceStatus: "source-text", evidence: [evidence(path, value.text, symbol.line, bodyEnd, value.url)], sourceSpan: { lineStart: symbol.line, lineEnd: symbol.bodyEndLine || symbol.endLine }, ...(value.node.url ? { url: value.node.url } : {}) });
         preview.nodeId = symbolId; value.symbolNodes.set(index, symbolId); navigableSymbols++;
         if (collection === documentFiles) documentNavigation++;
       }
@@ -400,7 +410,7 @@
     report.navigableSymbols = navigableSymbols; report.symbolContainers = symbolContainers; report.documentSymbols = documentSymbols; report.documentNavigation = documentNavigation;
     report.selection = "source-first; declarations allocated across files before separately bounded document sections";
     if (navigableSymbols < navigationCandidates) report.warnings.push("Some symbol navigation nodes were limited by the hierarchy entity, document or depth budget; declaration previews are retained.");
-    const urlMap = new Map(); for (const [path, value] of fileMap) { const url = safeUrl(value.entry.url); if (url) { const u = new URL(url); u.hash = ""; urlMap.set(u.href, path); } }
+    const urlMap = new Map(); for (const [path, value] of fileMap) { const url = value.url; if (url) { const u = new URL(url); u.hash = ""; urlMap.set(u.href, path); } }
     const juliaModules = new Map();
     for (const [path, value] of fileMap) if (value.node.language === "julia") for (const symbol of value.facts.symbols) {
       if (symbol.kind !== "module" || Number.isInteger(symbol.parent)) continue;
@@ -470,14 +480,14 @@
       if (!resolution.targets.length && resolution.external) {
         const target = externalTarget(value, resolution.external);
         if (!target || edges.length >= limits.maxEdges) { if (complete) resourceFailure("External relationship safety ceiling reached."); edgeCap = true; continue; }
-        edges.push({ id: id("edge", path + "\0external\0" + fact.line + "\0" + fact.form + "\0" + target + "\0" + edges.length), source: value.node.id, target, type: "imports", label: fact.specifier.slice(0, 240), evidenceStatus: "source-text", description: "The source declares this external dependency reference. Its contents and runtime binding were not inspected; this does not count as a resolved local-code relationship.", evidence: [evidence(path, value.text, fact.line, fact.endLine, safeUrl(value.entry.url))], externalReference: true });
+        edges.push({ id: id("edge", path + "\0external\0" + fact.line + "\0" + fact.form + "\0" + target + "\0" + edges.length), source: value.node.id, target, type: "imports", label: fact.specifier.slice(0, 240), evidenceStatus: "source-text", description: "The source declares this external dependency reference. Its contents and runtime binding were not inspected; this does not count as a resolved local-code relationship.", evidence: [evidence(path, value.text, fact.line, fact.endLine, value.url)], externalReference: true });
         externalReferenceEdges++; continue;
       }
       if (!resolution.targets.length) { if (value.node.analysis) value.node.analysis.unresolvedCount++; if (report.unresolved.length < (complete ? Number.MAX_SAFE_INTEGER : 1000)) report.unresolved.push({ file: path, line: fact.line, specifier: fact.specifier.slice(0, 256), reason: resolution.reason }); continue; }
       for (const target of resolution.targets) {
         if (edges.length >= limits.maxEdges) { if (complete) resourceFailure("Relationship safety ceiling reached."); edgeCap = true; break; }
         const type = ["html-script", "html-stylesheet"].includes(fact.form) ? "loads" : fact.form.endsWith("link") ? "links" : "imports";
-        edges.push({ id: id("edge", path + "\0" + fact.line + "\0" + fact.form + "\0" + fact.specifier + "\0" + target + "\0" + edges.length), source: value.node.id, target: fileMap.get(target).node.id, type, label: fact.specifier.slice(0, 240), evidenceStatus: "lexical-candidate", description: `${fact.form}: static source reference resolves to an included local file. This is a lexical dependency candidate, not a verified execution, call or runtime flow.`, evidence: [evidence(path, value.text, fact.line, fact.endLine, safeUrl(value.entry.url))] });
+        edges.push({ id: id("edge", path + "\0" + fact.line + "\0" + fact.form + "\0" + fact.specifier + "\0" + target + "\0" + edges.length), source: value.node.id, target: fileMap.get(target).node.id, type, label: fact.specifier.slice(0, 240), evidenceStatus: "lexical-candidate", description: `${fact.form}: static source reference resolves to an included local file. This is a lexical dependency candidate, not a verified execution, call or runtime flow.`, evidence: [evidence(path, value.text, fact.line, fact.endLine, value.url)] });
       }
     }
     const nodesById = new Map(nodes.map(node => [node.id, node]));
@@ -499,7 +509,7 @@
         continue;
       }
       if (edges.length >= limits.maxEdges) { if (complete) resourceFailure("Structural relationship safety ceiling reached."); edgeCap = true; break; }
-      edges.push({ id: id("edge", path + "\0heritage\0" + relationship.line + "\0" + (relationship.column || 0) + "\0" + relationship.form + "\0" + target + "\0" + relationshipIndex), source: from, target, type: relationship.form, label: (relationship.form === "implements" ? "implements " : "extends ") + relationship.name, evidenceStatus: "static-resolved", resolution: { engine: relationship.resolution.engine || "typescript-symbols", kind: "source" }, description: "A declared class or interface heritage reference resolves through the project symbol table to this unique included source definition. This is a structural relationship, not an execution sequence or proof that the implementation satisfies the contract.", evidence: [evidence(path, value.text, relationship.line, relationship.endLine, safeUrl(value.entry.url))] });
+      edges.push({ id: id("edge", path + "\0heritage\0" + relationship.line + "\0" + (relationship.column || 0) + "\0" + relationship.form + "\0" + target + "\0" + relationshipIndex), source: from, target, type: relationship.form, label: (relationship.form === "implements" ? "implements " : "extends ") + relationship.name, evidenceStatus: "static-resolved", resolution: { engine: relationship.resolution.engine || "typescript-symbols", kind: "source" }, description: "A declared class or interface heritage reference resolves through the project symbol table to this unique included source definition. This is a structural relationship, not an execution sequence or proof that the implementation satisfies the contract.", evidence: [evidence(path, value.text, relationship.line, relationship.endLine, value.url)] });
       structuralRelationships++;
     }
     report.structuralRelationships = structuralRelationships; report.unresolvedRelationships = unresolvedRelationships;
@@ -530,7 +540,7 @@
       for (const target of targets) {
         if (edges.length >= limits.maxEdges) { if (complete) resourceFailure("Relationship safety ceiling reached."); edgeCap = true; break; }
         const targetNode = nodesById.get(target), type = dispatch ? "call-candidate" : targetNode?.kind === "class" ? "constructs" : "calls";
-        edges.push({ id: id("edge", path + "\0call\0" + call.line + "\0" + (call.column || 0) + "\0" + call.name + "\0" + target + "\0" + edges.length), source: from, target, type, label: call.name + "()", callsiteId, ...(dispatch ? { dispatchCandidateCount: targets.length } : {}), evidenceStatus: dispatch ? "dispatch-candidate" : semantic ? "static-resolved" : "lexical-candidate", resolution: { engine: call.resolution.engine || (dispatch ? "julia-static-binding" : semantic ? "typescript-checker" : "lexical-binding"), kind: call.resolution.kind }, description: dispatch ? "A source call can refer to this included method through static module bindings. These edges form a candidate set; argument types and runtime multiple dispatch are not evaluated." : semantic ? "A static semantic binding resolves this call site to a unique included source declaration. Runtime dispatch and execution order are not observed." : "A source call expression resolves lexically to this unique included declaration. Decorators, rebinding and runtime behavior are not verified; this is not an observed execution or ordering claim.", evidence: [evidence(path, value.text, call.line, call.endLine, safeUrl(value.entry.url))] });
+        edges.push({ id: id("edge", path + "\0call\0" + call.line + "\0" + (call.column || 0) + "\0" + call.name + "\0" + target + "\0" + edges.length), source: from, target, type, label: call.name + "()", callsiteId, ...(dispatch ? { dispatchCandidateCount: targets.length } : {}), evidenceStatus: dispatch ? "dispatch-candidate" : semantic ? "static-resolved" : "lexical-candidate", resolution: { engine: call.resolution.engine || (dispatch ? "julia-static-binding" : semantic ? "typescript-checker" : "lexical-binding"), kind: call.resolution.kind }, description: dispatch ? "A source call can refer to this included method through static module bindings. These edges form a candidate set; argument types and runtime multiple dispatch are not evaluated." : semantic ? "A static semantic binding resolves this call site to a unique included source declaration. Runtime dispatch and execution order are not observed." : "A source call expression resolves lexically to this unique included declaration. Decorators, rebinding and runtime behavior are not verified; this is not an observed execution or ordering claim.", evidence: [evidence(path, value.text, call.line, call.endLine, value.url)] });
         callCandidates++; if (semantic) semanticCalls++; if (dispatch) dispatchCandidates++;
       }
     }
@@ -546,7 +556,7 @@
         value.node.parentId = pageId; value.node.level++;
         for (const symbol of value.facts.symbols) {
           if (headingCount >= (complete ? limits.maxEntities : 40) || nodes.length + hierarchy.length >= limits.maxEntities) break;
-          nodes.push({ id: id("section", path + "\0" + symbol.line + "\0" + symbol.name), label: symbol.name.slice(0, 180), path, kind: "module", group: rootId, parentId: pageId, level: value.node.level, summary: "Authored page section · source text, not an inferred component", evidenceStatus: "source-text", documentIds: [...value.node.documentIds], functions: [], inputs: [], outputs: [], evidence: [evidence(path, value.text, symbol.line, symbol.endLine, safeUrl(value.entry.url))] }); headingCount++;
+          nodes.push({ id: id("section", path + "\0" + symbol.line + "\0" + symbol.name), label: symbol.name.slice(0, 180), path, kind: "module", group: rootId, parentId: pageId, level: value.node.level, summary: "Authored page section · source text, not an inferred component", evidenceStatus: "source-text", documentIds: [...value.node.documentIds], functions: [], inputs: [], outputs: [], evidence: [evidence(path, value.text, symbol.line, symbol.endLine, value.url)] }); headingCount++;
         }
         const references = new Map();
         for (const fact of value.facts.imports) {
@@ -561,9 +571,9 @@
             if (referenceCount >= (complete ? limits.maxEntities : 40) || nodes.length + hierarchy.length >= limits.maxEntities) break;
             target = id("reference", path + "\0" + targetUrl); references.set(targetUrl, target);
             const parsed = new URL(targetUrl);
-            nodes.push({ id: target, label: (parsed.hostname + parsed.pathname).slice(0, 180), path: targetUrl, url: targetUrl, kind: "external", group: rootId, parentId: pageId, level: value.node.level, summary: `Unfetched ${resource ? "resource" : "hyperlink"} reference · target contents were not inspected`, status: "unfetched-reference", evidenceStatus: "unfetched-reference", documentIds: [...value.node.documentIds], functions: [], inputs: [], outputs: [], evidence: [evidence(path, value.text, fact.line, fact.endLine, safeUrl(value.entry.url))] }); referenceCount++;
+            nodes.push({ id: target, label: (parsed.hostname + parsed.pathname).slice(0, 180), path: targetUrl, url: targetUrl, kind: "external", group: rootId, parentId: pageId, level: value.node.level, summary: `Unfetched ${resource ? "resource" : "hyperlink"} reference · target contents were not inspected`, status: "unfetched-reference", evidenceStatus: "unfetched-reference", documentIds: [...value.node.documentIds], functions: [], inputs: [], outputs: [], evidence: [evidence(path, value.text, fact.line, fact.endLine, value.url)] }); referenceCount++;
           }
-          if (edges.length < limits.maxEdges) edges.push({ id: id("edge", path + (resource ? "\0resource\0" : "\0hyperlink\0") + fact.line + "\0" + targetUrl + "\0" + edges.length), source: value.node.id, target, type: resource ? "loads" : "links", label: (resource ? "resource · " : "hyperlink · ") + fact.specifier.slice(0, 240), evidenceStatus: "source-text", description: resource ? "The collected source contains this authored resource attribute. The target was not fetched; this does not establish successful loading or code execution." : "The collected source contains this authored hyperlink. The target was not fetched; the link does not establish a code dependency or execution relationship.", evidence: [evidence(path, value.text, fact.line, fact.endLine, safeUrl(value.entry.url))] });
+          if (edges.length < limits.maxEdges) edges.push({ id: id("edge", path + (resource ? "\0resource\0" : "\0hyperlink\0") + fact.line + "\0" + targetUrl + "\0" + edges.length), source: value.node.id, target, type: resource ? "loads" : "links", label: (resource ? "resource · " : "hyperlink · ") + fact.specifier.slice(0, 240), evidenceStatus: "source-text", description: resource ? "The collected source contains this authored resource attribute. The target was not fetched; this does not establish successful loading or code execution." : "The collected source contains this authored hyperlink. The target was not fetched; the link does not establish a code dependency or execution relationship.", evidence: [evidence(path, value.text, fact.line, fact.endLine, value.url)] });
         }
       }
       report.pageSections = headingCount; report.unfetchedReferences = referenceCount;
@@ -621,7 +631,9 @@
     }
     report.serializedBytes = 0;
     report.serializedBytes = outputSize();
-    report.serializedBytes = outputSize();
+    // Only this non-negative integer changed in the second measurement. Its
+    // decimal digit growth is the exact UTF-8/pretty-JSON byte delta.
+    report.serializedBytes += String(report.serializedBytes).length - 1;
     return model;
   }
   root.SkylenseIngest = Object.freeze({ build, classifyPath, comparePaths, pathPriority, isExcludedPath, limits: LIMITS });

@@ -38,7 +38,7 @@
         else if (data.type === "model") { cleanup(); resolve(data.model); }
         else if (data.type === "error") { cleanup(); reject(Object.assign(new Error(data.error.message), data.error)); }
       };
-      worker.postMessage({ kind, input: kind === "url" ? input : Array.from(input, f => ({ name: f.name, path: f.webkitRelativePath || f.name, size: f.size, blob: f })), options: { ...(options.maxFiles ? { maxFiles: options.maxFiles } : {}), cache: options.cache }, baseURL: new URL("parsers/", document.baseURI).href, assets: root.SKYLENSE_PARSER_ASSETS });
+      worker.postMessage({ kind, input: kind === "url" ? input : Array.from(input, f => ({ name: f.name, path: f.webkitRelativePath || f.name, size: f.size, blob: f })), options: { ...(options.maxFiles ? { maxFiles: options.maxFiles } : {}), ...(options.sourceCache === false ? { sourceCache: false } : {}), cache: options.cache }, baseURL: new URL("parsers/", document.baseURI).href, assets: root.SKYLENSE_PARSER_ASSETS });
     });
   }
   root.SkylenseAnalysisWorker = { analyze };

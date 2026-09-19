@@ -5,18 +5,18 @@
 
 逐层展开结构、追踪上下游、查看源码依据。网页、终端与 Agent 共用同一份模型。
 
-### [在线体验 ↗](https://danielchen26.github.io/skylense-app/app/?open=source) · [下载离线版 ↓](https://github.com/danielchen26/skylense-app/releases/download/v0.4.0/skylense-0.4.0-web-preview.zip)
+### [在线体验 ↗](https://danielchen26.github.io/skylense-app/app/?open=source) · [下载离线版 ↓](https://github.com/danielchen26/skylense-app/releases/download/v0.4.1/skylense-0.4.1-web-preview.zip)
 
 无需账号 · 可离线运行 · 六套主题 · 源码依据
 
-[English](README.md) · [产品主页](https://danielchen26.github.io/skylense-app/) · [发布记录](https://github.com/danielchen26/skylense-app/releases/tag/v0.4.0)
+[English](README.md) · [产品主页](https://danielchen26.github.io/skylense-app/) · [发布记录](https://github.com/danielchen26/skylense-app/releases/tag/v0.4.1)
 </div>
 
 ![Skylense 的真实 autoresearch 流程界面](docs/assets/captures/theme-midnight.png)
 
 ## 三步开始
 
-1. 下载 **[Web ZIP](https://github.com/danielchen26/skylense-app/releases/download/v0.4.0/skylense-0.4.0-web-preview.zip)**。
+1. 下载 **[Web ZIP](https://github.com/danielchen26/skylense-app/releases/download/v0.4.1/skylense-0.4.1-web-preview.zip)**。
 2. 解压 `skylense-web` 文件夹。
 3. 在现代桌面浏览器中打开 **`standalone.html`**。
 
@@ -34,7 +34,7 @@
 
 现在可以点击 **打开来源**，选择文件夹、多个文件，输入公开 GitHub / 网页 URL，或粘贴文本 / HTML。默认完整索引符合规则的文件，不再只取前 300 个文件。报告分别显示文件覆盖、解析诊断、未解析关系、外部依赖与预览长度，确认后进入同一套完整工作台。
 
-0.4 内置 **24 套 Tree-sitter 语法**，支持 Python、JavaScript / TypeScript、Julia、Go、Rust、C/C++ 等语言的声明与源码关系。文件、类、函数和嵌套结构可以逐层查看；未改变的文件复用本地增量语法缓存。
+0.4 内置 **24 套 Tree-sitter 语法**，支持 Python、JavaScript / TypeScript、Julia、Go、Rust、C/C++ 等语言的声明与源码关系。文件、类、函数和嵌套结构可以逐层查看；未改变的文件复用本地增量语法缓存。0.4.1 还会在确认 GitHub 最新提交和文件哈希后复用未改变的公开文件，完整重建关系图。
 
 - **JS / TS 调用**：通过 TypeScript checker 连接到已索引的源码声明，并注明静态绑定依据。
 - **Julia 方法集**：结合模块、include 与显式导入，显示可能的方法候选；候选边与已解析调用区分，不猜测运行时多分派。
@@ -47,10 +47,10 @@
 
 ## 终端与 Agent
 
-下载 **[Agent / Terminal 工具包](https://github.com/danielchen26/skylense-app/releases/download/v0.4.0/skylense-0.4.0.tgz)**，需要 Node.js 22+：
+下载 **[Agent / Terminal 工具包](https://github.com/danielchen26/skylense-app/releases/download/v0.4.1/skylense-0.4.1.tgz)**，需要 Node.js 22+：
 
 ```sh
-npm install -g /absolute/path/to/skylense-0.4.0.tgz
+npm install -g /absolute/path/to/skylense-0.4.1.tgz
 skylense open /path/to/project
 skylense open https://github.com/owner/repo
 skylense open https://example.com
