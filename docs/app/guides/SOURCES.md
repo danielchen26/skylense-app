@@ -12,10 +12,10 @@ Choose **打开来源 / Open source**. Select a folder, select files, enter a UR
 
 ## From the CLI
 
-Install the downloaded `skylense-0.3.0.tgz` with Node.js 22+:
+Install the downloaded `skylense-0.3.1.tgz` with Node.js 22+:
 
 ```sh
-npm install --global ./skylense-0.3.0.tgz
+npm install --global ./skylense-0.3.1.tgz
 skylense open /path/to/project
 skylense open https://github.com/karpathy/autoresearch
 skylense open https://example.com

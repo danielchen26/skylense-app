@@ -7,11 +7,11 @@
 Explore the hierarchy. Follow a connection. Open the source behind it.<br>
 One connected map for your browser, terminal, and coding agent.
 
-### [Open Skylense ↗](https://danielchen26.github.io/skylense-app/app/?open=source) &nbsp; · &nbsp; [Download offline ↓](https://github.com/danielchen26/skylense-app/releases/download/v0.3.0/skylense-0.3.0-web-preview.zip)
+### [Open Skylense ↗](https://danielchen26.github.io/skylense-app/app/?open=source) &nbsp; · &nbsp; [Download offline ↓](https://github.com/danielchen26/skylense-app/releases/download/v0.3.1/skylense-0.3.1-web-preview.zip)
 
 **No account · Offline-ready · Six themes · Source-linked**
 
-[Website](https://danielchen26.github.io/skylense-app/) · [Terminal & MCP](#terminal--mcp) · [中文](README.zh-CN.md) · [Release notes](https://github.com/danielchen26/skylense-app/releases/tag/v0.3.0)
+[Website](https://danielchen26.github.io/skylense-app/) · [Terminal & MCP](#terminal--mcp) · [中文](README.zh-CN.md) · [Release notes](https://github.com/danielchen26/skylense-app/releases/tag/v0.3.1)
 
 </div>
 
@@ -33,7 +33,7 @@ One connected map for your browser, terminal, and coding agent.
 
 ## Download. Unzip. Explore.
 
-1. **[Download the Web app](https://github.com/danielchen26/skylense-app/releases/download/v0.3.0/skylense-0.3.0-web-preview.zip).**
+1. **[Download the Web app](https://github.com/danielchen26/skylense-app/releases/download/v0.3.1/skylense-0.3.1-web-preview.zip).**
 2. Extract the `skylense-web` folder.
 3. Open **`standalone.html`** in a modern desktop browser.
 
@@ -82,10 +82,10 @@ Switch with **T** while preserving your selection, reading position, and zoom. S
 
 Use the same model in an interactive terminal, through JSON output, or from a compatible coding agent.
 
-Download the **[Agent & Terminal toolkit](https://github.com/danielchen26/skylense-app/releases/download/v0.3.0/skylense-0.3.0.tgz)**. With **Node.js 22+**, install the downloaded file:
+Download the **[Agent & Terminal toolkit](https://github.com/danielchen26/skylense-app/releases/download/v0.3.1/skylense-0.3.1.tgz)**. With **Node.js 22+**, install the downloaded file:
 
 ```sh
-npm install -g /absolute/path/to/skylense-0.3.0.tgz
+npm install -g /absolute/path/to/skylense-0.3.1.tgz
 skylense tui autoresearch
 ```
 
@@ -110,9 +110,9 @@ Eight MCP tools let an agent **analyze sources, export models, list, search, ins
 
 | Download | Includes | Requires |
 | --- | --- | --- |
-| **[Web ZIP](https://github.com/danielchen26/skylense-app/releases/download/v0.3.0/skylense-0.3.0-web-preview.zip)** | Interactive explorer, six themes, all three maps, offline HTML | Modern desktop browser |
-| **[Agent toolkit](https://github.com/danielchen26/skylense-app/releases/download/v0.3.0/skylense-0.3.0.tgz)** | Source analyzer, full local Web app, CLI, terminal and MCP server | Node.js 22+ |
-| **[Checksums](https://github.com/danielchen26/skylense-app/releases/download/v0.3.0/SHA256SUMS.txt)** | SHA-256 for both files | Optional integrity check |
+| **[Web ZIP](https://github.com/danielchen26/skylense-app/releases/download/v0.3.1/skylense-0.3.1-web-preview.zip)** | Interactive explorer, six themes, all three maps, offline HTML | Modern desktop browser |
+| **[Agent toolkit](https://github.com/danielchen26/skylense-app/releases/download/v0.3.1/skylense-0.3.1.tgz)** | Source analyzer, full local Web app, CLI, terminal and MCP server | Node.js 22+ |
+| **[Checksums](https://github.com/danielchen26/skylense-app/releases/download/v0.3.1/SHA256SUMS.txt)** | SHA-256 for both files | Optional integrity check |
 
 Choose the named ZIP or TGZ above, rather than GitHub's automatically generated source archives. A native macOS installer is not included yet.
 

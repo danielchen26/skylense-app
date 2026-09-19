@@ -9669,10 +9669,28 @@ if (typeof location !== "undefined") {
     while (stop > 0 && (bytes[stop] & 0xc0) === 0x80) stop--;
     return { text: new TextDecoder().decode(bytes.subarray(0, stop)), bytes: stop, truncated: true };
   }
-  function lineEvidence(file, text, start, end = start, url) {
-    const lines = text.split("\n");
+  // Reuse source offsets across every excerpt and HTML reference in one build.
+  // LF boundaries preserve split("\n") semantics, including CRLF and an empty
+  // final line, without splitting or rescanning a complete file per reference.
+  function indexLines(text) {
+    const starts = [0];
+    for (let at = text.indexOf("\n"); at !== -1; at = text.indexOf("\n", at + 1)) starts.push(at + 1);
+    return {
+      length: starts.length,
+      lineAt(offset) {
+        let low = 0, high = starts.length;
+        while (low < high) { const middle = (low + high) >>> 1; if (starts[middle] <= offset) low = middle + 1; else high = middle; }
+        return low;
+      },
+      excerpt(start, end) {
+        if (start > end || start > starts.length) return "";
+        return text.slice(starts[start - 1], end < starts.length ? starts[end] - 1 : text.length);
+      },
+    };
+  }
+  function lineEvidence(file, lines, start, end = start, url) {
     const lineStart = Math.max(1, start), lineEnd = Math.min(lines.length, end);
-    return { file, lineStart, lineEnd, excerpt: lines.slice(lineStart - 1, lineEnd).join("\n"), ...(url ? { url } : {}) };
+    return { file, lineStart, lineEnd, excerpt: lines.excerpt(lineStart, lineEnd), ...(url ? { url } : {}) };
   }
   // Tokens retain source offsets. Comments, quoted data, template bodies and Python
   // triple strings cannot manufacture declarations or dependency keywords.
@@ -9697,8 +9715,11 @@ if (typeof location !== "undefined") {
         push(triple || c === "`" || escaped || !closed ? "data" : "string", value, start, atLine); continue;
       }
       if (!python && c === "/") {
-        const prev = tokens[tokens.length - 1];
-        if (!prev || ["=", "(", "[", "{", ":", ",", ";", "!", "?", "return", "yield", "=>"].includes(prev.value)) {
+        const prev = tokens[tokens.length - 1], before = tokens[tokens.length - 2];
+        // Arrow punctuation is tokenized separately; only an adjacent => pair
+        // opens an expression here, not an arbitrary greater-than comparison.
+        const afterArrow = prev?.value === ">" && before?.value === "=" && before.end === prev.start;
+        if (!prev || afterArrow || ["=", "(", "[", "{", ":", ",", ";", "!", "?", "return", "yield"].includes(prev.value)) {
           i++; let bracket = false;
           while (i < text.length && text[i] !== "\n") { const ch = text[i++]; if (ch === "\\") i++; else if (ch === "[") bracket = true; else if (ch === "]") bracket = false; else if (ch === "/" && !bracket) break; }
           while (/[a-z]/i.test(text[i] || "")) i++;
@@ -9760,8 +9781,8 @@ if (typeof location !== "undefined") {
     }
     return { symbols, imports };
   }
-  function documentFacts(text, language) {
-    const symbols = [], imports = [], lineAt = (offset) => text.slice(0, offset).split("\n").length;
+  function documentFacts(text, language, lines) {
+    const symbols = [], imports = [], lineAt = lines.lineAt;
     if (language === "markdown") {
       let fenced = false; const lines = text.split("\n");
       lines.forEach((line, index) => {
@@ -9796,8 +9817,10 @@ if (typeof location !== "undefined") {
     const limits = { maxFiles: bound(options.maxFiles, LIMITS.maxFiles, 1000), maxFileBytes: bound(options.maxFileBytes, LIMITS.maxFileBytes, LIMITS.maxFileBytes), maxTotalBytes: bound(options.maxTotalBytes, LIMITS.maxTotalBytes, LIMITS.maxTotalBytes), maxEntities: LIMITS.maxEntities, maxSymbolsPerFile: LIMITS.maxSymbolsPerFile, maxSymbolsTotal: LIMITS.maxSymbolsTotal, maxEvidenceBytes: LIMITS.maxEvidenceBytes, maxSerializedBytes: LIMITS.maxSerializedBytes, maxEdges: LIMITS.maxEdges };
     const report = { ...(options.report && typeof options.report === "object" ? options.report : {}), analyzer: "skylense-static-v1", limits, inputEntries: entries.length, acceptedFiles: 0, analyzedFiles: 0, metadataOnlyFiles: 0, textBytes: 0, truncatedFiles: 0, skipped: Array.isArray(options.report?.skipped) ? options.report.skipped.slice(0, 1000) : [], warnings: Array.isArray(options.report?.warnings) ? options.report.warnings.slice(0, 1000) : [], unresolved: [], capabilities: { hierarchy: "Filesystem structure for accepted paths", symbols: "Lexical Python and JavaScript/TypeScript declarations; HTML/Markdown headings", relationships: "Locally resolved import/link candidates only", execution: false, aiInference: false, unsupported: "Other text is previewed; binary/PDF/image/archive contents are metadata only. Dynamic imports, aliases, re-exports, runtime dispatch and arbitrary language call graphs are not resolved." } };
     let symbolsUsed = 0, evidenceBytes = 0, evidenceTruncated = 0;
+    const sourceLines = new Map();
     function evidence(file, text, start, end, url) {
-      const item = lineEvidence(file, text, start, end, url), remaining = Math.max(0, limits.maxEvidenceBytes - evidenceBytes);
+      if (!sourceLines.has(file)) sourceLines.set(file, indexLines(text));
+      const item = lineEvidence(file, sourceLines.get(file), start, end, url), remaining = Math.max(0, limits.maxEvidenceBytes - evidenceBytes);
       const clipped = truncateBytes(item.excerpt, Math.min(2048, remaining)); evidenceBytes += clipped.bytes;
       if (clipped.truncated) { item.excerpt = clipped.text; item.excerptTruncated = true; evidenceTruncated++; }
       return item;
@@ -9840,10 +9863,11 @@ if (typeof location !== "undefined") {
           const clipped = truncateBytes(entry.text, Math.min(limits.maxFileBytes, remaining)); text = clipped.text; report.textBytes += clipped.bytes;
           const truncated = clipped.truncated || entry.status === "truncated" || entry.truncated === true; if (truncated) report.truncatedFiles++;
           const docId = id("doc", entry.path); documents.push({ id: docId, title: entry.path, path: entry.path, content: text, status: truncated ? "truncated" : "source", ...(url ? { url } : {}) }); node.documentIds.push(docId);
-          node.evidence = [evidence(entry.path, text, 1, Math.min(8, text.split("\n").length), url)]; node.evidenceStatus = "source-text";
-          node.summary = `${info.language || "Text"} · ${text.split("\n").length} preview lines${truncated ? " · preview truncated" : ""}`;
+          const lines = indexLines(text); sourceLines.set(entry.path, lines);
+          node.evidence = [evidence(entry.path, text, 1, Math.min(8, lines.length), url)]; node.evidenceStatus = "source-text";
+          node.summary = `${info.language || "Text"} · ${lines.length} preview lines${truncated ? " · preview truncated" : ""}`;
           if (["python", "javascript", "typescript"].includes(info.language)) facts = codeFacts(text, info.language);
-          else if (["html", "markdown"].includes(info.language)) facts = documentFacts(text, info.language);
+          else if (["html", "markdown"].includes(info.language)) facts = documentFacts(text, info.language, lines);
           node.functions = facts.symbols.slice(0, Math.min(limits.maxSymbolsPerFile, limits.maxSymbolsTotal - symbolsUsed)).map((symbol) => ({ name: symbol.name, kind: symbol.kind, description: `Lexical ${symbol.kind} declaration at line ${symbol.line}; no runtime or type-checking claim.`, inputs: [], outputs: [], evidenceStatus: "lexical-candidate", evidence: [evidence(entry.path, text, symbol.line, symbol.endLine, url)] }));
           symbolsUsed += node.functions.length;
           if (facts.symbols.length > node.functions.length) report.warnings.push(`${entry.path}: symbol preview limited by per-file (${limits.maxSymbolsPerFile}) or collection (${limits.maxSymbolsTotal}) budget.`);
