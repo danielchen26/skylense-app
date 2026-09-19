@@ -89,7 +89,11 @@
   const generated = () => Boolean(data.meta?.ingestion);
   let sourceJob = null, sourceSerial = 0, sourcePreview = null;
   let sourceTab = "files";
+  let guideOrigin = null, guideBrowse = "context";
+  const guideInfoCache = new Map();
+  let guideTreeCounts = new Map();
   function index() {
+    guideInfoCache.clear();
     graphIndex = AtlasGraph.index(data);
     nodes = new Map(data.nodes.map((n) => [n.id, n]));
     groupMap = new Map(data.groups.map((n) => [n.id, n]));
@@ -329,6 +333,13 @@
       ? p.get("type")
       : "all";
     state.step = Number(p.get("step")) || 0;
+    const restoredFlow = state.mode === "flow" ? currentFlow() : null;
+    if (restoredFlow) {
+      const selectedStep = restoredFlow.nodes.indexOf(state.selected);
+      state.step = selectedStep >= 0 ? selectedStep : Math.max(0, Math.min(restoredFlow.nodes.length - 1, Number.isInteger(state.step) ? state.step : 0));
+      if (!state.relation) state.selected = restoredFlow.nodes[state.step];
+      if (isSourceGuide(restoredFlow) && !state.scope) state.scope = guideInfo(restoredFlow).containerId;
+    }
     if (p.get("relationView") === "detail") {
       const traceIds = (
         p.has("relationTrace") ? p.get("relationTrace").split(",") : relationIds
@@ -823,7 +834,7 @@
     document.body.classList.toggle("presenting", state.present);
     hidePeek();
     $("#app").innerHTML =
-      `<header class="app-header"><button class="icon-btn mobile-toggle" data-action="toggle-sidebar" aria-label="打开导航">${icon("menu")}</button><a class="brand" href="#" data-action="home" aria-label="Skylense 首页"><span class="brand-mark"><svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">  <rect width="64" height="64" rx="16" fill="var(--accent)"/>  <path d="M10 32C15 21 23 15 32 15C41 15 49 21 54 32C49 43 41 49 32 49C23 49 15 43 10 32Z" stroke="var(--accent-text, white)" stroke-width="3"/>  <circle cx="32" cy="32" r="11" stroke="var(--accent-text, white)" stroke-width="3"/>  <path d="M24 32H40M32 24V40" stroke="var(--accent-text, white)" stroke-width="2"/>  <circle cx="32" cy="32" r="4" fill="var(--accent-text, white)"/></svg></span>Skylense</a><span class="header-divider"></span><div class="project-name">${icon("box")}<b>${escape(data.meta?.title || "Imported model")}</b><span class="badge">${generated() ? "Source map" : imported ? "Local import" : "Public example"}</span></div><span class="spacer"></span><div class="header-actions"><button class="btn primary source-open" data-action="source-open" aria-label="打开来源">${icon("plus")}<span>打开来源</span></button><button class="btn theme-toggle" data-action="theme" aria-label="选择主题" title="选择主题 · T">${icon(state.dark ? "moon" : "sun")}<span>主题</span></button><button class="btn present-toggle" data-action="present">${icon(state.present ? "close" : "play")}${state.present ? "退出讲解" : "讲解"}</button><button class="btn hide-mobile" data-action="save">${icon("bookmark")}保存视图</button><button class="btn connect-toggle" data-action="connect">${icon("link")}连接</button><button class="btn export-toggle" data-action="export">${icon("download")}导出 / 导入</button></div></header><div class="workspace"><aside class="sidebar" id="sidebar" aria-label="代码库导航"></aside><main class="main"><div class="canvas-header" id="canvas-header"></div><div class="canvas-toolbar"><div class="segmented" role="group" aria-label="视图模式"><button data-action="mode" data-value="hierarchy" class="${state.mode === "hierarchy" ? "active" : ""}">${icon("layers")}层级</button><button data-action="mode" data-value="components" class="${state.mode === "components" ? "active" : ""}">${icon("grid")}组件</button><button data-action="mode" data-value="flow" class="${state.mode === "flow" ? "active" : ""}">${icon("flow")}流程</button></div><span class="spacer"></span><button class="btn motion-toggle" data-action="motion"></button><span class="toolbar-label">关系</span><select id="edge-filter" aria-label="关系类型" class="toolbar-select"><option value="all">全部关系</option>${[...new Set(data.edges.map((e) => e.type))].map((t) => `<option value="${escape(t)}" ${state.type === t ? "selected" : ""}>${escape(CodeLoomSemantics.relation(t).label)} · ${escape(t)}</option>`).join("")}</select><button class="btn" data-action="route">${icon("route")}路径</button><button class="icon-btn mobile-toggle" data-action="toggle-inspector" aria-label="打开详情">${icon("info")}</button></div><div class="structure-toolbar"><button class="structure-up" data-action="level-up" ${!state.scope ? "disabled" : ""}>${icon("back")}上一级</button><div class="lens-switch" role="group" aria-label="关系观察范围">${[
+      `<header class="app-header"><button class="icon-btn mobile-toggle" data-action="toggle-sidebar" aria-label="打开导航">${icon("menu")}</button><a class="brand" href="#" data-action="home" aria-label="Skylense 首页"><span class="brand-mark"><svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">  <rect width="64" height="64" rx="16" fill="var(--accent)"/>  <path d="M10 32C15 21 23 15 32 15C41 15 49 21 54 32C49 43 41 49 32 49C23 49 15 43 10 32Z" stroke="var(--accent-text, white)" stroke-width="3"/>  <circle cx="32" cy="32" r="11" stroke="var(--accent-text, white)" stroke-width="3"/>  <path d="M24 32H40M32 24V40" stroke="var(--accent-text, white)" stroke-width="2"/>  <circle cx="32" cy="32" r="4" fill="var(--accent-text, white)"/></svg></span>Skylense</a><span class="header-divider"></span><div class="project-name">${icon("box")}<b>${escape(data.meta?.title || "Imported model")}</b><span class="badge">${generated() ? "Source map" : imported ? "Local import" : "Public example"}</span></div><span class="spacer"></span><div class="header-actions"><button class="btn primary source-open" data-action="source-open" aria-label="打开来源">${icon("plus")}<span>打开来源</span></button><button class="btn theme-toggle" data-action="theme" aria-label="选择主题" title="选择主题 · T">${icon(state.dark ? "moon" : "sun")}<span>主题</span></button><button class="btn present-toggle" data-action="present">${icon(state.present ? "close" : "play")}${state.present ? "退出讲解" : "讲解"}</button><button class="btn hide-mobile" data-action="save">${icon("bookmark")}保存视图</button><button class="btn connect-toggle" data-action="connect">${icon("link")}连接</button><button class="btn export-toggle" data-action="export">${icon("download")}导出 / 导入</button></div></header><div class="workspace"><aside class="sidebar" id="sidebar" aria-label="代码库导航"></aside><main class="main"><div class="canvas-header" id="canvas-header"></div><div class="canvas-toolbar"><div class="segmented" role="group" aria-label="视图模式"><button data-action="mode" data-value="hierarchy" class="${state.mode === "hierarchy" ? "active" : ""}">${icon("layers")}层级</button><button data-action="mode" data-value="components" class="${state.mode === "components" ? "active" : ""}">${icon("grid")}组件</button><button data-action="mode" data-value="flow" class="${state.mode === "flow" ? "active" : ""}">${icon("flow")}${generated() ? "导览" : "流程"}</button></div><span class="spacer"></span><button class="btn motion-toggle" data-action="motion"></button><span class="toolbar-label">关系</span><select id="edge-filter" aria-label="关系类型" class="toolbar-select"><option value="all">全部关系</option>${[...new Set(data.edges.map((e) => e.type))].map((t) => `<option value="${escape(t)}" ${state.type === t ? "selected" : ""}>${escape(CodeLoomSemantics.relation(t).label)} · ${escape(t)}</option>`).join("")}</select><button class="btn" data-action="route">${icon("route")}路径</button><button class="icon-btn mobile-toggle" data-action="toggle-inspector" aria-label="打开详情">${icon("info")}</button></div><div class="structure-toolbar"><button class="structure-up" data-action="level-up" ${!state.scope ? "disabled" : ""}>${icon("back")}上一级</button><div class="lens-switch" role="group" aria-label="关系观察范围">${[
         ["scope", "当前范围"],
         ["neighbors", "直接关联"],
         ["global", "全局定位"],
@@ -845,15 +856,71 @@
     hash();
     updateMotion();
   }
+  function isSourceGuide(flow) {
+    return Boolean(flow && (flow.kind === "dependency-neighborhood" || generated()));
+  }
+  function guideInfo(flow) {
+    if (guideInfoCache.has(flow.id)) return guideInfoCache.get(flow.id);
+    const anchor = nodes.get(flow.anchorId) || nodes.get(flow.nodes[0]);
+    const counts = {};
+    const ids = new Set(flow.nodes);
+    const edges = flow.edgeIds ? flow.edgeIds.map(id => graphIndex.edges.get(id)).filter(Boolean) : data.edges.filter(edge => ids.has(edge.source) && ids.has(edge.target));
+    for (const edge of edges) counts[edge.type] = (counts[edge.type] || 0) + 1;
+    const types = Object.keys(counts);
+    const intent = flow.intent || (types.length && types.every(type => ["imports", "loads"].includes(type)) ? "imports" : types.some(type => ["calls", "constructs", "call-candidate"].includes(type)) ? "calls" : types.length && types.every(type => type === "links") ? "links" : "relationships");
+    const containerId = containers.has(flow.containerId) ? flow.containerId : anchor?.parentId || null;
+    const context = flow.contextPath || crumbIds(containerId).filter(id => containers.get(id)?.parentId).map(label).slice(-2).join(" / ") || "仓库根目录";
+    const title = flow.title || anchor?.label || flow.label.split(/[\\/]/).at(-1).replace(/ · dependencies$/, "");
+    const coverage = new Set(flow.nodes.flatMap(id => crumbIds(id)));
+    const value = { anchorId: anchor?.id, containerId, title, context, coverage, sourcePath: flow.sourcePath || anchor?.path || "", intent, category: ["source", "examples", "tests", "docs", "tooling"].includes(flow.category) ? flow.category : "other", nodeCount: flow.nodes.length, edgeCount: edges.length, counts };
+    guideInfoCache.set(flow.id, value); return value;
+  }
+  function guideIntent(info) {
+    return { imports: "模块依赖", calls: "调用关联", links: "文档引用", relationships: "关联概览" }[info.intent] || "关联概览";
+  }
+  function guideCategory(info) {
+    return { source: "源码", examples: "示例", tests: "测试", docs: "文档", tooling: "工具与配置", other: "其他入口" }[info.category] || "其他入口";
+  }
+  function guideNodeLabel(id, flow) {
+    const n = nodes.get(id), title = n?.sourceRole === "file" ? n.path?.split("/").at(-1) || n.label : n?.qualifiedName || label(id);
+    const duplicate = flow.nodes.some(other => other !== id && label(other) === label(id));
+    const line = n?.sourceSpan?.lineStart;
+    return `${title}${duplicate ? ` · ${(n?.path || id).split("/").slice(-2).join("/")}${line ? ":" + line : ""}` : ""}`;
+  }
+  function guideContext() {
+    const id = state.mode === "flow" && guideOrigin?.model === data ? guideOrigin.view.scope : state.scope;
+    return id && containers.get(id)?.parentId ? id : null;
+  }
+  function relatedGuides(scopeId) {
+    return (data.flows || []).filter(flow => !scopeId || guideInfo(flow).coverage.has(scopeId));
+  }
+  function renderGuideNavigation() {
+    const flows = data.flows || [], automatic = generated() || flows.some(isSourceGuide);
+    if (!automatic) return `<section class="sidebar-section" aria-label="场景导览"><div class="nav-heading"><span class="eyebrow">场景导览</span><span>${flows.length}</span></div><p class="navigation-hint">沿精选场景，串联上方结构中的组件。</p>${flows.map(f => `<button class="flow-button ${state.flow === f.id && state.mode === "flow" ? "active" : ""}" data-action="flow" data-id="${escape(f.id)}">${icon("flow")}<span>${escape(flowLabel(f))}</span></button>`).join("")}${flows.length ? "" : '<p class="source-empty-flows">当前模型没有预设场景，可用「路径」探索已有连接。</p>'}</section>`;
+    const contextId = guideContext(), matching = relatedGuides(contextId), visible = guideBrowse === "all" ? flows : matching;
+    const groups = ["source", "examples", "tests", "docs", "tooling", "other"];
+    return `<section class="sidebar-section guide-navigation" aria-label="源码导览"><div class="nav-heading"><span class="eyebrow">源码导览</span><span>${flows.length} 个入口</span></div><p class="navigation-hint">从上方目录中的入口出发，沿连接理解代码。</p><div class="guide-range" role="group" aria-label="导览范围"><button data-action="guide-range" data-value="context" aria-pressed="${guideBrowse === "context"}">${contextId ? "当前模块" : "推荐入口"}<small>${matching.length}</small></button><button data-action="guide-range" data-value="all" aria-pressed="${guideBrowse === "all"}">全部<small>${flows.length}</small></button></div>${contextId && guideBrowse === "context" ? `<div class="guide-scope-label" title="${escape(containers.get(contextId)?.path || label(contextId))}">${icon("layers")}与 ${escape(label(contextId))} 相关</div>` : ""}<div class="guide-card-list">${groups.map(category => {
+      const items = visible.filter(f => guideInfo(f).category === category);
+      if (!items.length) return "";
+      return `<div class="guide-category-label">${escape(guideCategory({ category }))}<span>${items.length}</span></div>${items.map(f => {
+        const info = guideInfo(f), active = state.flow === f.id && state.mode === "flow";
+        return `<button class="guide-card ${active ? "active" : ""}" data-action="flow" data-id="${escape(f.id)}" aria-pressed="${active}" aria-label="打开源码导览：${escape(info.title)}，${escape(guideIntent(info))}" title="${escape(info.sourcePath)}"><span class="guide-card-purpose">${icon(info.intent === "links" ? "document" : info.intent === "calls" ? "code" : "flow")}${escape(guideIntent(info))}${active ? '<span class="guide-current">阅读中</span>' : ""}</span><strong>${escape(info.title).replaceAll("_", "_<wbr>")}</strong><span class="guide-card-context">${escape(info.context)}</span><span class="guide-card-counts">${info.nodeCount} 个对象<span>·</span>${info.edgeCount} 条关系${icon("arrow")}</span></button>`;
+      }).join("")}`;
+    }).join("")}</div>${visible.length ? '<p class="guide-footnote">这些是阅读入口；全部关系仍可在结构图和「路径」中探索。</p>' : `<div class="source-empty-flows">${flows.length ? "这个模块暂时没有推荐导览，仍可直接查看它的完整关系。" : "当前来源尚未解析出可用于导览的关系。"}${contextId ? '<button data-action="boundary-context">查看模块关系 →</button>' : '<button data-action="source-report">查看分析报告 →</button>'}${flows.length ? '<button data-action="guide-range" data-value="all">浏览全部导览 →</button>' : ""}</div>`}</section>`;
+  }
   function tree(id, depth = 0) {
     const n = all.get(id);
     if (!n) return "";
     const isContainer = containers.has(id);
     const children = isContainer ? (graphIndex.children.get(id) || []) : [];
     const expanded = state.expanded.has(id);
-    return `<div class="tree-row ${state.selected === id || state.scope === id ? "active" : ""} ${isContainer ? "" : "tree-leaf"}"><button class="caret" data-action="expand" data-id="${id}" aria-label="${expanded ? "折叠" : "展开"} ${escape(n.label)}" ${!isContainer ? 'style="visibility:hidden"' : ""}>${icon(expanded ? "down" : "chevron")}</button><button class="tree-select" data-action="${isContainer ? "scope" : "select"}" data-id="${id}"><i class="dot" style="--tone:${groupColor(n)}"></i><span class="name">${escape(n.label)}</span><span class="tree-level">L${CodeLoomLevels.depth(data, n.id)}</span>${isContainer ? `<small>${descendants(id).length}</small>` : ""}</button></div>${isContainer && expanded ? `<div class="tree-children">${children.map((c) => tree(c.id, depth + 1)).join("")}</div>` : ""}`;
+    const guideCount = guideTreeCounts.get(id) || 0;
+    return `<div class="tree-row ${state.selected === id || state.scope === id ? "active" : ""} ${isContainer ? "" : "tree-leaf"} ${guideCount ? "in-guide" : ""}"><button class="caret" data-action="expand" data-id="${id}" aria-label="${expanded ? "折叠" : "展开"} ${escape(n.label)}" ${!isContainer ? 'style="visibility:hidden"' : ""}>${icon(expanded ? "down" : "chevron")}</button><button class="tree-select" data-action="${isContainer ? "scope" : "select"}" data-id="${id}" ${state.selected === id ? 'aria-current="location"' : ""} title="${escape(n.path || n.label)}"><i class="dot" style="--tone:${groupColor(n)}"></i><span class="name">${escape(n.label)}</span>${guideCount ? `<span class="guide-tree-count" title="本导览包含 ${guideCount} 个对象" aria-label="导览包含 ${guideCount} 个对象">${guideCount}</span>` : `<span class="tree-level">L${CodeLoomLevels.depth(data, n.id)}</span>${isContainer ? `<small>${descendants(id).length}</small>` : ""}`}</button></div>${isContainer && expanded ? `<div class="tree-children">${children.map((c) => tree(c.id, depth + 1)).join("")}</div>` : ""}`;
   }
   function renderSidebar() {
+    const guide = state.mode === "flow" && isSourceGuide(currentFlow()) ? currentFlow() : null;
+    guideTreeCounts = new Map();
+    if (guide) for (const id of guide.nodes) for (const ancestor of crumbIds(id)) guideTreeCounts.set(ancestor, (guideTreeCounts.get(ancestor) || 0) + 1);
     const focusedIds = state.relation
       ? selectedRelationEdges().flatMap((e) => [e.source, e.target])
       : state.selected
@@ -864,12 +931,12 @@
         state.expanded.add(ancestor);
     const count = data.nodes.length;
     $("#sidebar").innerHTML =
-      `<div class="sidebar-top"><label class="eyebrow" for="example-select">Explore a codebase</label><select id="example-select" class="example-select" aria-label="选择内置示例">${imported ? `<option value="imported" selected disabled>${generated() ? "当前分析结果" : "当前导入模型"}</option>` : ""}${Object.entries(window.SKYLENSE_MODELS || {}).map(([id, model]) => `<option value="${escape(id)}" ${!imported && id === data.meta?.id ? "selected" : ""}>${escape(model.meta.title)}</option>`).join("")}</select><div class="project-card"><strong>${escape(data.meta?.title || "Architecture")}</strong><p><span class="project-dot"></span>${data.groups.length} systems · ${count} components</p><small class="source-caption">${generated() ? "自动提取 · 可查看分析范围" : imported ? "本地导入" : `精选源码视图 · ${escape((data.meta.revision || "").slice(0, 8))}`}</small>${generated() ? `<button class="source-report-link" data-action="source-report">${icon("info")}分析报告${icon("arrow")}</button>` : ""}</div></div><div class="search-wrap">${icon("search")}<input id="search" aria-label="搜索组件、路径或函数" placeholder="搜索组件、函数…" value="${escape(state.query)}" autocomplete="off"><kbd>/</kbd></div><div id="tree-content"></div><div class="sidebar-section"><div class="nav-heading"><span class="eyebrow">${generated() ? "Source guides" : "Guided flows"}</span><span>${(data.flows || []).length}</span></div>${(data.flows || []).map((f) => `<button class="flow-button ${state.flow === f.id && state.mode === "flow" ? "active" : ""}" data-action="flow" data-id="${escape(f.id)}">${icon("flow")}<span>${escape(flowLabel(f))}</span></button>`).join("")}${!(data.flows || []).length ? `<div class="source-empty-flows">${generated() ? "当前范围未解析出可用于导览的关系。查看分析报告可区分不支持、未纳入与真实无连接的情况。" : "当前模型没有预设流程。"}<button data-action="route">探索节点间的关系 →</button></div>` : ""}</div><div class="sidebar-section" style="margin-top:18px"><div class="nav-heading"><span class="eyebrow">Saved views</span><span>${saved.length}</span></div><div id="saved-list">${saved.length ? saved.map((v, i) => `<div class="bookmark"><button class="saved-load" data-action="load-view" data-id="${i}">${escape(v.name)}</button><button class="icon-btn" data-action="delete-view" data-id="${i}" aria-label="删除视图 ${escape(v.name)}">${icon("close")}</button></div>`).join("") : '<p class="micro" style="padding:0 19px 15px">把有价值的阅读位置留在这里。</p>'}</div></div><div class="sidebar-bottom">See every layer. Follow every connection.<button class="sidebar-connect" data-action="connect">${icon("link")}连接 Agent 与终端</button></div>`;
+      `<div class="sidebar-top"><label class="eyebrow" for="example-select">Explore a codebase</label><select id="example-select" class="example-select" aria-label="选择内置示例">${imported ? `<option value="imported" selected disabled>${generated() ? "当前分析结果" : "当前导入模型"}</option>` : ""}${Object.entries(window.SKYLENSE_MODELS || {}).map(([id, model]) => `<option value="${escape(id)}" ${!imported && id === data.meta?.id ? "selected" : ""}>${escape(model.meta.title)}</option>`).join("")}</select><div class="project-card"><strong>${escape(data.meta?.title || "Architecture")}</strong><p><span class="project-dot"></span>${data.groups.length} systems · ${count} components</p><small class="source-caption">${generated() ? "自动提取 · 可查看分析范围" : imported ? "本地导入" : `精选源码视图 · ${escape((data.meta.revision || "").slice(0, 8))}`}</small>${generated() ? `<button class="source-report-link" data-action="source-report">${icon("info")}分析报告${icon("arrow")}</button>` : ""}</div></div><div class="search-wrap">${icon("search")}<input id="search" aria-label="搜索组件、路径或函数" placeholder="搜索组件、函数…" value="${escape(state.query)}" autocomplete="off"><kbd>/</kbd></div><div id="tree-content"></div>${renderGuideNavigation()}<div class="sidebar-section" style="margin-top:18px"><div class="nav-heading"><span class="eyebrow">Saved views</span><span>${saved.length}</span></div><div id="saved-list">${saved.length ? saved.map((v, i) => `<div class="bookmark"><button class="saved-load" data-action="load-view" data-id="${i}">${escape(v.name)}</button><button class="icon-btn" data-action="delete-view" data-id="${i}" aria-label="删除视图 ${escape(v.name)}">${icon("close")}</button></div>`).join("") : '<p class="micro" style="padding:0 19px 15px">把有价值的阅读位置留在这里。</p>'}</div></div><div class="sidebar-bottom">See every layer. Follow every connection.<button class="sidebar-connect" data-action="connect">${icon("link")}连接 Agent 与终端</button></div>`;
     renderTree();
     applyLevelHighlights();
   }
   function flowLabel(f) {
-    return f.label;
+    return isSourceGuide(f) ? `${guideInfo(f).title} · ${guideIntent(guideInfo(f))}` : f.label;
   }
   function renderTree() {
     const host = $("#tree-content");
@@ -885,7 +952,7 @@
       applyLevelHighlights();
       return;
     }
-    host.innerHTML = `<div class="nav-heading"><span class="eyebrow">Explorer</span><button class="icon-btn" data-action="home" title="系统总览" aria-label="系统总览">${icon("layers")}</button></div><div class="tree"><div class="tree-row ${!state.scope ? "active" : ""}"><button class="tree-select" data-action="home" style="padding:8px">${icon("box")}<span class="name">系统总览</span><small>${data.groups.length}</small></button></div>${data.groups.map((g) => tree(g.id)).join("")}</div>`;
+    host.innerHTML = `<div class="nav-heading"><span class="eyebrow">${generated() ? "代码结构" : "系统结构"}</span><button class="icon-btn" data-action="home" title="系统总览" aria-label="系统总览">${icon("layers")}</button></div><p class="navigation-hint">${guideTreeCounts.size ? "高亮目录与数字对应当前导览的对象。" : "按目录逐层定位；下方导览沿连接阅读。"}</p><div class="tree" tabindex="0" aria-label="代码结构目录"><div class="tree-row ${!state.scope ? "active" : ""}"><button class="tree-select" data-action="home" style="padding:8px">${icon("box")}<span class="name">系统总览</span><small>${data.groups.length}</small></button></div>${data.groups.map((g) => tree(g.id)).join("")}</div>`;
     applyLevelHighlights();
   }
   function currentFlow() {
@@ -905,7 +972,7 @@
               ? label(state.scope)
               : "System architecture";
     $("#canvas-header").innerHTML =
-      `<nav class="breadcrumbs" aria-label="层级导航"><button data-action="home">${escape(data.meta?.title || "Codebase")}</button>${chain.map((id) => `${icon("chevron")}<button data-action="scope" data-id="${id}">${escape(label(id))}</button>`).join("")}${flow ? `${icon("chevron")}<span>Guided flow</span>` : ""}</nav><div class="page-title"><h1>${escape(title)}</h1><span class="badge">${state.lens === "global" ? "GLOBAL" : state.lens === "neighbors" ? "1 HOP" : flow ? "FLOW" : state.scope ? `L${CodeLoomLevels.depth(data, state.scope)}` : "L0"}</span></div><p class="subtitle">${flow ? generated() ? "逐个阅读自动整理的依赖节点；静态关联与阅读顺序不代表运行顺序。" : "逐个阅读场景节点，查看文档描述的关联；阅读顺序不代表执行顺序。" : state.scope ? "展开模块边界，选择关系节点，沿层级和连接双向探索。" : "探索系统的组成、依赖与数据去向，从这里逐层深入。"}</p>`;
+      `<nav class="breadcrumbs" aria-label="层级导航"><button data-action="home">${escape(data.meta?.title || "Codebase")}</button>${chain.map((id) => `${icon("chevron")}<button data-action="scope" data-id="${id}">${escape(label(id))}</button>`).join("")}${flow ? `${icon("chevron")}<span>${isSourceGuide(flow) ? "源码导览" : "场景导览"}</span>` : ""}</nav><div class="page-title"><h1>${escape(title)}</h1><span class="badge">${state.lens === "global" ? "GLOBAL" : state.lens === "neighbors" ? "1 HOP" : flow ? isSourceGuide(flow) ? "GUIDE" : "FLOW" : state.scope ? `L${CodeLoomLevels.depth(data, state.scope)}` : "L0"}</span></div><p class="subtitle">${flow ? isSourceGuide(flow) ? "从目录中的入口出发，阅读同一张图里的关联对象；可随时定位或返回。" : "逐个阅读场景节点，查看文档描述的关联；阅读顺序不代表执行顺序。" : state.scope ? "展开模块边界，选择关系节点，沿层级和连接双向探索。" : "探索系统的组成、依赖与数据去向，从这里逐层深入。"}</p>`;
   }
   function renderStory() {
     const f =
@@ -915,6 +982,11 @@
       return;
     }
     state.step = Math.min(Math.max(state.step, 0), f.nodes.length - 1);
+    if (isSourceGuide(f)) {
+      const info = guideInfo(f);
+      $("#story").innerHTML = `<section class="guide-story" aria-label="当前源码导览"><div class="guide-story-context"><span>${icon("flow")}入口 <b>${escape(info.title)}</b><small>${escape(info.context)}</small></span><div class="guide-story-actions"><button class="btn" data-action="guide-locate">${icon("layers")}在目录中定位</button><button class="btn" data-action="guide-return">${icon("back")}${guideOrigin?.model === data ? "返回原位置" : "返回模块结构"}</button></div></div><div class="guide-reader"><label for="guide-node-select">关联对象 <span>${state.step + 1} / ${f.nodes.length}</span></label><button class="icon-btn" data-action="prev-step" aria-label="上一个关联对象" ${state.step === 0 ? "disabled" : ""}>${icon("back")}</button><select id="guide-node-select" aria-label="导览中的对象">${f.nodes.map((id, i) => `<option value="${i}" ${i === state.step ? "selected" : ""}>${escape(guideNodeLabel(id, f))}</option>`).join("")}</select><button class="icon-btn" data-action="next-step" aria-label="下一个关联对象" ${state.step === f.nodes.length - 1 ? "disabled" : ""}>${icon("arrow")}</button><span class="guide-reader-count">${info.edgeCount} 条关系</span></div><p class="guide-reading-note">关联可有分支；这里的阅读顺序不代表执行顺序。</p></section>`;
+      return;
+    }
     $("#story").innerHTML =
       `<div class="story-strip"><button class="icon-btn" data-action="prev-step" aria-label="上一个场景节点" ${state.step === 0 ? "disabled" : ""}>${icon("back")}</button><div><strong>${String(state.step + 1).padStart(2, "0")} / ${f.nodes.length} · ${escape(label(f.nodes[state.step]))}</strong><p>${generated() ? "静态依赖阅读 · 非运行轨迹" : "文档场景 · 点击右箭头继续探索"}</p></div><span class="spacer"></span><div class="story-progress">${f.nodes.map((id, i) => `<button class="${i <= state.step ? "active" : ""}" data-action="step" data-id="${i}" title="${escape(label(id))}" aria-label="阅读 ${escape(label(id))}"></button>`).join("")}</div><button class="icon-btn" data-action="next-step" aria-label="下一个场景节点" ${state.step === f.nodes.length - 1 ? "disabled" : ""}>${icon("arrow")}</button></div>`;
   }
@@ -1573,6 +1645,8 @@
     state.levelFocus = "auto";
     state.relation = null;
     state.selected = id;
+    const flow = state.mode === "flow" ? currentFlow() : null;
+    if (flow?.nodes.includes(id)) state.step = flow.nodes.indexOf(id);
     canvasPages.clear();
     state.tab = "overview";
     state.query = "";
@@ -1595,6 +1669,7 @@
     } else {
       renderInspector();
       renderSidebar();
+      renderStory();
       renderCanvas(false);
       hash();
     }
@@ -1769,8 +1844,9 @@
   }
   function activateModel(parsed) {
     AtlasGraph.validate(parsed);
-    const previous = { data, imported, saved, state: { ...state, expanded: new Set(state.expanded) }, routeDraft, routeResult };
+    const previous = { data, imported, saved, state: { ...state, expanded: new Set(state.expanded) }, routeDraft, routeResult, guideOrigin, guideBrowse };
     try {
+      guideOrigin = null; guideBrowse = "context";
       data = parsed;
       index();
       imported = true;
@@ -1789,6 +1865,7 @@
     } catch (err) {
       data = previous.data; imported = previous.imported; saved = previous.saved;
       routeDraft = previous.routeDraft; routeResult = previous.routeResult;
+      guideOrigin = previous.guideOrigin; guideBrowse = previous.guideBrowse;
       index(); Object.assign(state, previous.state); sceneCache.clear(); render();
       throw err;
     }
@@ -2219,6 +2296,11 @@
       hash();
     },
     mode: (value) => {
+      if (value === "flow" && (data.flows || []).length) {
+        const next = currentFlow() || relatedGuides(state.scope)[0] || data.flows[0];
+        actions.flow(null, next.id);
+        return;
+      }
       rememberRelation();
       state.lens = "scope";
       state.mode = value;
@@ -2240,6 +2322,10 @@
     flow: (_, id) => {
       const f = (data.flows || []).find((f) => f.id === id);
       if (!f) return;
+      if (isSourceGuide(f) && !(state.mode === "flow" && guideOrigin?.model === data)) {
+        guideOrigin = { model: data, view: structuredClone(snapshotState()), query: state.query, expanded: [...state.expanded] };
+      }
+      rememberReading();
       rememberRelation();
       state.lens = "scope";
       state.flow = id;
@@ -2249,8 +2335,39 @@
       state.trace = null;
       state.step = 0;
       state.selected = f.nodes[0];
-      state.scope = null;
+      state.scope = isSourceGuide(f) ? guideInfo(f).containerId : null;
+      state.type = "all";
+      state.tab = "overview";
+      state.query = "";
       render();
+      if (isSourceGuide(f)) focusReadingNode();
+      if (window.innerWidth <= 950) $("#sidebar").classList.remove("open");
+    },
+    "guide-range": value => {
+      guideBrowse = value === "all" ? "all" : "context";
+      renderSidebar();
+      $(`.guide-range [data-value="${guideBrowse}"]`)?.focus();
+    },
+    "guide-return": () => {
+      const origin = guideOrigin, f = currentFlow();
+      guideOrigin = null;
+      if (origin?.model !== data) { scope(f ? guideInfo(f).containerId : state.scope); return; }
+      rememberReading();
+      Object.assign(state, structuredClone(origin.view), { query: origin.query, expanded: new Set(origin.expanded) });
+      render();
+      state.camera = { ...origin.view.camera }; applyCamera();
+    },
+    "guide-locate": () => {
+      const f = currentFlow();
+      if (!f) return;
+      const id = f.nodes.includes(state.selected) ? state.selected : guideInfo(f).anchorId;
+      const n = nodes.get(id);
+      if (!n) return;
+      scope(n.parentId || n.group);
+      select(id);
+      focusReadingNode();
+      $("#sidebar").classList.add("open");
+      $('#tree-content [aria-current="location"]')?.scrollIntoView({ block: "nearest" });
     },
     step: (_, i) => {
       const f = currentFlow();
@@ -2261,10 +2378,11 @@
       state.selected = f.nodes[state.step];
       state.levelFocus = "auto";
       state.relation = null;
+      renderSidebar();
       renderStory();
       renderInspector();
       renderCanvas(false);
-      if (state.present) focusReadingNode();
+      if (state.present || isSourceGuide(f)) focusReadingNode();
       hash();
     },
     "next-step": () => actions.step(null, state.step + 1),
@@ -2471,6 +2589,7 @@
       location.assign(url.href);
       return;
     }
+    if (e.target.id === "guide-node-select") { actions.step(null, e.target.value); return; }
     if (e.target.id === "edge-filter") {
       state.type = e.target.value;
       if (

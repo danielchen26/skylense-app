@@ -17,7 +17,7 @@ Remote requests have timeouts and cancellation. An incomplete GitHub tree, unrea
 Install the downloaded toolkit with Node.js 22+:
 
 ```sh
-npm install --global ./skylense-0.4.1.tgz
+npm install --global ./skylense-0.4.2.tgz
 skylense open /path/to/project
 skylense open https://github.com/danielchen26/Gflownet
 skylense open https://example.com
@@ -68,6 +68,14 @@ CLI public requests reject private/reserved network destinations and nonstandard
 ## Same workbench, every source
 
 Hierarchy, same-level focus, category boundaries, orthogonal animated relationships, node/edge inspectors, source previews, upstream/downstream/global context, ordered-waypoint routes, comparison, saved views, themes, JSON/SVG export and presentation all consume the same model. Features have the same controls for imported and curated maps; the available relationships and scenarios reflect the evidence in each model.
+
+### Read the tree and source guides together
+
+The tree shows containment: folders, files and declarations. **源码导览 / Source guides** below it selects connected neighborhoods from that same graph. A guide card shows a short entry name, compact location, relationship purpose, category and exact object/edge counts. Source modules are recommended before tests; examples, tests, documents and tools remain separate groups. These categories describe the anchor's actual path, not an inferred business role.
+
+Use **当前模块 / Current module** to see guides related to the current module, or **全部 / All** to browse all suggested entries. At the repository overview, the first option shows recommended entries. Opening a guide highlights its members and containing folders in the tree. The object dropdown, graph selection and reading position stay synchronized. **在目录中定位 / Locate in tree** opens its location; **返回原位置 / Return** restores the previous view. A directly opened guide can return to its containing structure instead.
+
+Guide cards also work with older exported source models that lack the new presentation metadata. Their original guide membership, canonical nodes, edges and evidence are retained. A guide is a selected static neighborhood with branches, not a runtime trace or a promise of a directed path. The entire indexed graph remains available through the hierarchy, upstream/downstream exploration and path search.
 
 MCP returns source excerpts to your connected agent. Analysis responses retain exact diagnostic totals and return bounded samples; the complete report and model remain in the session and protected viewer. If a graph exceeds the raw model tool's response limit, use `skylense_view` or focused queries without reducing source coverage. Your agent host controls subsequent use of returned data. [Agent setup](AGENTS.md) · [Model authoring](MODEL.md)
 

@@ -7,11 +7,11 @@
 Explore the hierarchy. Follow a connection. Open the source behind it.<br>
 One connected map for your browser, terminal, and coding agent.
 
-### [Open Skylense ↗](https://danielchen26.github.io/skylense-app/app/?open=source) &nbsp; · &nbsp; [Download offline ↓](https://github.com/danielchen26/skylense-app/releases/download/v0.4.1/skylense-0.4.1-web-preview.zip)
+### [Open Skylense ↗](https://danielchen26.github.io/skylense-app/app/?open=source) &nbsp; · &nbsp; [Download offline ↓](https://github.com/danielchen26/skylense-app/releases/download/v0.4.2/skylense-0.4.2-web-preview.zip)
 
 **No account · Offline-ready · Six themes · Source-linked**
 
-[Website](https://danielchen26.github.io/skylense-app/) · [Terminal & MCP](#terminal--mcp) · [中文](README.zh-CN.md) · [Release notes](https://github.com/danielchen26/skylense-app/releases/tag/v0.4.1)
+[Website](https://danielchen26.github.io/skylense-app/) · [Terminal & MCP](#terminal--mcp) · [中文](README.zh-CN.md) · [Release notes](https://github.com/danielchen26/skylense-app/releases/tag/v0.4.2)
 
 </div>
 
@@ -22,6 +22,7 @@ One connected map for your browser, terminal, and coding agent.
 | Your question | Your next move |
 | --- | --- |
 | **Where does this fit?** | Expand from systems to modules and components. Keep parent and global context in view. |
+| **Where should I start reading?** | Choose a source guide by its entry file or symbol, relationship type and module. See the same objects highlighted in the tree. |
 | **What connects these points?** | Build a route with chosen intermediate stops, inspect each relationship, and compare bounded alternatives. |
 | **What happens along this flow?** | Walk through curated scenarios with animated direction cues and connected details. |
 | **Where is the evidence?** | Open source excerpts, commit-pinned links, inputs, outputs, and individual edge details. |
@@ -33,7 +34,7 @@ One connected map for your browser, terminal, and coding agent.
 
 ## Download. Unzip. Explore.
 
-1. **[Download the Web app](https://github.com/danielchen26/skylense-app/releases/download/v0.4.1/skylense-0.4.1-web-preview.zip).**
+1. **[Download the Web app](https://github.com/danielchen26/skylense-app/releases/download/v0.4.2/skylense-0.4.2-web-preview.zip).**
 2. Extract the `skylense-web` folder.
 3. Open **`standalone.html`** in a modern desktop browser.
 
@@ -65,6 +66,14 @@ The toolkit includes the complete Web app. Local `open` handles public webpages 
 
 The same full workbench handles generated and curated maps. Static dependency guides support exploration; they do not claim an observed execution order. Full indexing stops explicitly when a resource ceiling is reached instead of silently dropping the rest of a repository. [Detailed capabilities and ceilings](guides/SOURCES.md).
 
+## A guide into the same map
+
+The module tree shows **where code lives**. Source guides show **which connected objects to read together**. In 0.4.2, cards use a short file or symbol name, compact module context, relationship purpose and exact object/edge counts. Source modules appear first; examples, tests, documentation and tools are grouped separately.
+
+Switch between the current module and all guides. Opening a guide highlights its objects and ancestor folders in the tree; selecting an object in the graph or the guide's dropdown keeps the reading position in sync. Use **在目录中定位 / Locate in tree** to inspect its location, or **返回原位置 / Return** to resume your previous view. Existing exported JSON also receives readable guide cards without changing its authored nodes, relationships or evidence.
+
+Guides are selected static neighborhoods with possible branches, not execution traces. Every original relationship remains available in the full map and path search.
+
 ## Start with a real AI codebase
 
 | Map | What you can explore |
@@ -91,10 +100,10 @@ Switch with **T** while preserving your selection, reading position, and zoom. S
 
 Use the same model in an interactive terminal, through JSON output, or from a compatible coding agent.
 
-Download the **[Agent & Terminal toolkit](https://github.com/danielchen26/skylense-app/releases/download/v0.4.1/skylense-0.4.1.tgz)**. With **Node.js 22+**, install the downloaded file:
+Download the **[Agent & Terminal toolkit](https://github.com/danielchen26/skylense-app/releases/download/v0.4.2/skylense-0.4.2.tgz)**. With **Node.js 22+**, install the downloaded file:
 
 ```sh
-npm install -g /absolute/path/to/skylense-0.4.1.tgz
+npm install -g /absolute/path/to/skylense-0.4.2.tgz
 skylense tui autoresearch
 ```
 
@@ -119,9 +128,9 @@ Nine MCP tools let an agent **analyze sources, export models, list, search, insp
 
 | Download | Includes | Requires |
 | --- | --- | --- |
-| **[Web ZIP](https://github.com/danielchen26/skylense-app/releases/download/v0.4.1/skylense-0.4.1-web-preview.zip)** | Interactive explorer, six themes, all three maps, offline HTML | Modern desktop browser |
-| **[Agent toolkit](https://github.com/danielchen26/skylense-app/releases/download/v0.4.1/skylense-0.4.1.tgz)** | Source analyzer, full local Web app, CLI, terminal and MCP server | Node.js 22+ |
-| **[Checksums](https://github.com/danielchen26/skylense-app/releases/download/v0.4.1/SHA256SUMS.txt)** | SHA-256 for both files | Optional integrity check |
+| **[Web ZIP](https://github.com/danielchen26/skylense-app/releases/download/v0.4.2/skylense-0.4.2-web-preview.zip)** | Interactive explorer, six themes, all three maps, offline HTML | Modern desktop browser |
+| **[Agent toolkit](https://github.com/danielchen26/skylense-app/releases/download/v0.4.2/skylense-0.4.2.tgz)** | Source analyzer, full local Web app, CLI, terminal and MCP server | Node.js 22+ |
+| **[Checksums](https://github.com/danielchen26/skylense-app/releases/download/v0.4.2/SHA256SUMS.txt)** | SHA-256 for both files | Optional integrity check |
 
 Choose the named ZIP or TGZ above, rather than GitHub's automatically generated source archives. A native macOS installer is not included yet.
 

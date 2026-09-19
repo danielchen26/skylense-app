@@ -5,18 +5,18 @@
 
 逐层展开结构、追踪上下游、查看源码依据。网页、终端与 Agent 共用同一份模型。
 
-### [在线体验 ↗](https://danielchen26.github.io/skylense-app/app/?open=source) · [下载离线版 ↓](https://github.com/danielchen26/skylense-app/releases/download/v0.4.1/skylense-0.4.1-web-preview.zip)
+### [在线体验 ↗](https://danielchen26.github.io/skylense-app/app/?open=source) · [下载离线版 ↓](https://github.com/danielchen26/skylense-app/releases/download/v0.4.2/skylense-0.4.2-web-preview.zip)
 
 无需账号 · 可离线运行 · 六套主题 · 源码依据
 
-[English](README.md) · [产品主页](https://danielchen26.github.io/skylense-app/) · [发布记录](https://github.com/danielchen26/skylense-app/releases/tag/v0.4.1)
+[English](README.md) · [产品主页](https://danielchen26.github.io/skylense-app/) · [发布记录](https://github.com/danielchen26/skylense-app/releases/tag/v0.4.2)
 </div>
 
 ![Skylense 的真实 autoresearch 流程界面](docs/assets/captures/theme-midnight.png)
 
 ## 三步开始
 
-1. 下载 **[Web ZIP](https://github.com/danielchen26/skylense-app/releases/download/v0.4.1/skylense-0.4.1-web-preview.zip)**。
+1. 下载 **[Web ZIP](https://github.com/danielchen26/skylense-app/releases/download/v0.4.2/skylense-0.4.2-web-preview.zip)**。
 2. 解压 `skylense-web` 文件夹。
 3. 在现代桌面浏览器中打开 **`standalone.html`**。
 
@@ -25,6 +25,7 @@
 ## 把一个问题一路读下去
 
 - **层级结构**：从系统到模块、组件，向下展开并保留父级与全局位置。
+- **源码导览**：从短文件名或函数名选择阅读入口，直接看到关联类型、所属位置与对象 / 关系数量，并在目录中同步高亮。
 - **关系探索**：直角连线、上下游联动、类别分区与同层高亮；路径可以加入中间必经节点。
 - **流程讲解**：按场景阅读，动态提示方向，随时暂停或进入讲解模式。
 - **源码依据**：查看节点、函数与每条原始边的说明、短源码摘录和固定 commit 链接。
@@ -45,12 +46,20 @@
 
 仍内置 **autoresearch、LangGraph、vLLM** 三个固定版本的精选语义模型供体验。
 
+## 目录与导览，读的是同一张图
+
+上方目录回答“代码放在哪里”，下方 **源码导览** 回答“从哪个入口开始，把哪些关联对象一起读”。0.4.2 用短文件名 / 函数名作为卡片标题，路径退到辅助位置；同时标明导入、调用关联、资源链接或混合关系，以及实际对象数和关系数。源码模块优先推荐，示例、测试、文档与工具分组展示。
+
+可以选择 **当前模块** 或 **全部** 导览。进入导览后，同一批对象及其上级目录会高亮；点击画布对象或使用对象下拉框，阅读位置同步更新。**在目录中定位** 可查看所在层级，**返回原位置** 可继续此前的探索。旧版导出 JSON 也能显示清楚的导览卡片，保留原有节点、关系和源码依据。
+
+导览可以包含分支，表示静态源码关联的阅读入口，不代表实际执行顺序；完整关系仍可在结构图、上下游和路径工具中探索。
+
 ## 终端与 Agent
 
-下载 **[Agent / Terminal 工具包](https://github.com/danielchen26/skylense-app/releases/download/v0.4.1/skylense-0.4.1.tgz)**，需要 Node.js 22+：
+下载 **[Agent / Terminal 工具包](https://github.com/danielchen26/skylense-app/releases/download/v0.4.2/skylense-0.4.2.tgz)**，需要 Node.js 22+：
 
 ```sh
-npm install -g /absolute/path/to/skylense-0.4.1.tgz
+npm install -g /absolute/path/to/skylense-0.4.2.tgz
 skylense open /path/to/project
 skylense open https://github.com/owner/repo
 skylense open https://example.com

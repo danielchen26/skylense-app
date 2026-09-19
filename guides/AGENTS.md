@@ -1,9 +1,9 @@
 # Skylense in your coding agent
 
-Install the [0.4.1 toolkit](https://github.com/danielchen26/skylense-app/releases/tag/v0.4.1) using Node.js 22+:
+Install the [0.4.2 toolkit](https://github.com/danielchen26/skylense-app/releases/tag/v0.4.2) using Node.js 22+:
 
 ```sh
-npm install -g /absolute/path/to/skylense-0.4.1.tgz
+npm install -g /absolute/path/to/skylense-0.4.2.tgz
 skylense config --root /path/to/project
 ```
 
