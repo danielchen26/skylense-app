@@ -4,19 +4,12 @@
 
   const compare = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
   const sorted = (values) => [...new Set(values)].sort(compare);
+  // Imported/analyzed models are immutable snapshots, matching levels/focus.
+  // Reuse their ancestry instead of rebuilding it for every card on the canvas.
+  const indexes = new WeakMap();
 
-  /**
-   * Describe a leaf/container and/or selected canonical edges. Both supplied
-   * selectors contribute to the selected union. A type filter limits analysis,
-   * never the focused edge IDs or the selected endpoint identities.
-   *
-   * incoming/outgoing/internal contain original edge IDs. upstream/downstream
-   * contain distinct reachable leaf IDs outside the selection. Per-root direct
-   * counts attribute an incoming edge to its external source's group and an
-   * outgoing edge to its external target's group. Internal selected edges never
-   * inflate either count. Boundary projections preserve the actual endpoint IDs.
-   */
-  function describe(model, { nodeId, edgeIds = [], type = "all" } = {}) {
+  function index(model) {
+    if (indexes.has(model)) return indexes.get(model);
     const nodes = new Map((model.nodes || []).map((node) => [node.id, node]));
     const groups = new Set((model.groups || []).map((group) => group.id));
     const items = new Map([
@@ -47,12 +40,30 @@
     const canonical = [...(model.edges || [])].sort((a, b) =>
       compare(a.id, b.id),
     );
+    const members = new Map([...items.keys()].map((id) => [id, []]));
+    for (const [id, path] of paths)
+      for (const ancestor of path) members.get(ancestor).push(id);
+    const result = { nodes, groups, items, roots, canonical, members };
+    indexes.set(model, result);
+    return result;
+  }
+
+  /**
+   * Describe a leaf/container and/or selected canonical edges. Both supplied
+   * selectors contribute to the selected union. A type filter limits analysis,
+   * never the focused edge IDs or the selected endpoint identities.
+   *
+   * incoming/outgoing/internal contain original edge IDs. upstream/downstream
+   * contain distinct reachable leaf IDs outside the selection. Per-root direct
+   * counts attribute an incoming edge to its external source's group and an
+   * outgoing edge to its external target's group. Internal selected edges never
+   * inflate either count. Boundary projections preserve the actual endpoint IDs.
+   */
+  function describe(model, { nodeId, edgeIds = [], type = "all" } = {}) {
+    const { nodes, groups, roots, canonical, members } = index(model);
     const requested = new Set(edgeIds),
       focused = canonical.filter((edge) => requested.has(edge.id));
-    const selected = new Set();
-    if (nodeId && items.has(nodeId))
-      for (const [id, path] of paths)
-        if (path.includes(nodeId)) selected.add(id);
+    const selected = new Set(members.get(nodeId) || []);
     for (const edge of focused)
       for (const id of [edge.source, edge.target])
         if (nodes.has(id)) selected.add(id);

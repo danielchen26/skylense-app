@@ -75,3 +75,21 @@
 .connect-current-model .btn { margin-top:10px; }
 
 #modal.source-dialog .modal-header { position:sticky; top:0; z-index:2; background:var(--panel); }
+
+.source-language-table { overflow-x:auto; margin-block:18px; }
+.source-language-table table { width:100%; border-collapse:collapse; font-size:11px; text-align:left; }
+.source-language-table th, .source-language-table td { padding:8px; border-bottom:1px solid var(--line); }
+.source-language-table p { font-size:10px; color:var(--muted); line-height:1.7; }
+.source-node-status { padding:14px; border:1px solid var(--line); border-radius:8px; margin:18px 0; background:var(--soft); font-size:11px; line-height:1.8; }
+.source-node-status p, .source-node-status small { color:var(--muted); }
+.source-node-status small { display:block; }
+.source-node-status a { display:block; color:var(--accent); margin-top:10px; }
+.source-node-status ul { padding-left:16px; overflow-wrap:anywhere; }
+.source-node-status .btn { max-width:100%; white-space:normal; }
+#source-progress-time { color:var(--muted); font-size:11px; }
+
+.canvas-paging { display:flex; align-items:center; gap:10px; pointer-events:auto; padding-top:7px; }
+.canvas-paging button { border:1px solid var(--line); border-radius:5px; padding:4px 9px; color:var(--text); background:var(--panel); }
+.canvas-paging button:disabled { opacity:.35; }
+#canvas-note:has(.canvas-paging) { flex-wrap:wrap; max-width:calc(100% - 38px); }
+.flow-button span { overflow-wrap:anywhere; min-width:0; }

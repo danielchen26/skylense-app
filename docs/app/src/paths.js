@@ -1,7 +1,7 @@
 /* Bounded, deterministic path exploration. Original edge directions are never rewritten. */
 (function (root) {
   "use strict";
-  const limits = Object.freeze({ nodes: 2000, edges: 12000, stops: 8, hops: 48, expansions: 60000, alternatives: 3 });
+  const limits = Object.freeze({ nodes: 500000, edges: 1000000, stops: 8, hops: 48, expansions: 60000, alternatives: 3 });
   const stepKey = (step) => `${step.edge}:${step.reverse ? 1 : 0}`;
   const signature = (path) => JSON.stringify(path.steps.map(stepKey));
   const order = (a, b) => a.steps.length - b.steps.length || signature(a).localeCompare(signature(b));
@@ -24,8 +24,9 @@
     const result = { options, paths: [], segments: [], error: null, limited: false, expansions: 0 };
     const fail = (code, message, extra = {}) => { result.error = { code, message, ...extra }; return result; };
     if (!Array.isArray(model?.nodes) || !Array.isArray(model?.edges)) return fail("INVALID_MODEL", "模型缺少节点或关系。");
-    if (model.nodes.length > limits.nodes || model.edges.length > limits.edges) return fail("MODEL_LIMIT", "路径探索支持最多 2,000 个组件、12,000 条关系；请导入更小的阅读模型。");
+    if (model.nodes.length > limits.nodes || model.edges.length > limits.edges) return fail("MODEL_LIMIT", "模型超过路径索引的安全上限；未执行搜索。");
     const ids = new Set(model.nodes.map(n => n.id));
+    if (ids.size !== model.nodes.length) return fail("INVALID_MODEL", "节点 ID 重复。");
     if (options.stops.some(id => !ids.has(id))) return fail("UNKNOWN_STOP", "路径中有当前模型不存在的组件；请重新选择。");
     const availableTypes = new Set(model.edges.map(e => e.type));
     if (options.types?.some(type => !availableTypes.has(type))) return fail("UNKNOWN_TYPE", "路径包含当前模型不存在的关系类型。");

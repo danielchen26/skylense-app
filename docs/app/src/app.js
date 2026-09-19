@@ -81,7 +81,7 @@
   }
   let data = window.ATLAS_DATA;
   AtlasGraph.validate(data);
-  let nodes,
+  let graphIndex, nodes,
     containers,
     all,
     groupMap,
@@ -90,6 +90,7 @@
   let sourceJob = null, sourceSerial = 0, sourcePreview = null;
   let sourceTab = "files";
   function index() {
+    graphIndex = AtlasGraph.index(data);
     nodes = new Map(data.nodes.map((n) => [n.id, n]));
     groupMap = new Map(data.groups.map((n) => [n.id, n]));
     containers = new Map(
@@ -165,35 +166,9 @@
   const groupColor = (n) => groupMap.get(n.group || n.id)?.color || "#689c80";
   const kindIcon = (n) => CodeLoomSemantics.node(n?.kind).icon;
   const readingHistory = [];
-  function descendants(id) {
-    return data.nodes.filter((n) => {
-      let p = n.parentId || n.group;
-      const visited = new Set();
-      while (p && !visited.has(p)) {
-        if (p === id) return true;
-        visited.add(p);
-        p = containers.get(p)?.parentId;
-      }
-      return false;
-    });
-  }
-  function members(id) {
-    return nodes.has(id) ? [id] : descendants(id).map((n) => n.id);
-  }
-  function incident(id) {
-    const ids = new Set(members(id));
-    return {
-      incoming: data.edges.filter(
-        (e) => ids.has(e.target) && !ids.has(e.source),
-      ),
-      outgoing: data.edges.filter(
-        (e) => ids.has(e.source) && !ids.has(e.target),
-      ),
-      internal: data.edges.filter(
-        (e) => ids.has(e.source) && ids.has(e.target),
-      ),
-    };
-  }
+  function descendants(id) { return graphIndex.getMembers(id).map(id => nodes.get(id)); }
+  function members(id) { return graphIndex.getMembers(id); }
+  function incident(id) { const result = graphIndex.boundary(id, "all"); return Object.fromEntries(Object.entries(result).map(([key, ids]) => [key, ids.map(id => graphIndex.edges.get(id))])); }
   function label(id) {
     return all.get(id)?.label || id;
   }
@@ -874,12 +849,7 @@
     const n = all.get(id);
     if (!n) return "";
     const isContainer = containers.has(id);
-    const children = isContainer
-      ? [...containers.values(), ...data.nodes].filter(
-          (c) =>
-            (c.parentId || (!containers.has(c.id) ? c.group : null)) === id,
-        )
-      : [];
+    const children = isContainer ? (graphIndex.children.get(id) || []) : [];
     const expanded = state.expanded.has(id);
     return `<div class="tree-row ${state.selected === id || state.scope === id ? "active" : ""} ${isContainer ? "" : "tree-leaf"}"><button class="caret" data-action="expand" data-id="${id}" aria-label="${expanded ? "折叠" : "展开"} ${escape(n.label)}" ${!isContainer ? 'style="visibility:hidden"' : ""}>${icon(expanded ? "down" : "chevron")}</button><button class="tree-select" data-action="${isContainer ? "scope" : "select"}" data-id="${id}"><i class="dot" style="--tone:${groupColor(n)}"></i><span class="name">${escape(n.label)}</span><span class="tree-level">L${CodeLoomLevels.depth(data, n.id)}</span>${isContainer ? `<small>${descendants(id).length}</small>` : ""}</button></div>${isContainer && expanded ? `<div class="tree-children">${children.map((c) => tree(c.id, depth + 1)).join("")}</div>` : ""}`;
   }
@@ -894,7 +864,7 @@
         state.expanded.add(ancestor);
     const count = data.nodes.length;
     $("#sidebar").innerHTML =
-      `<div class="sidebar-top"><label class="eyebrow" for="example-select">Explore a codebase</label><select id="example-select" class="example-select" aria-label="选择内置示例">${imported ? `<option value="imported" selected disabled>${generated() ? "当前分析结果" : "当前导入模型"}</option>` : ""}${Object.entries(window.SKYLENSE_MODELS || {}).map(([id, model]) => `<option value="${escape(id)}" ${!imported && id === data.meta?.id ? "selected" : ""}>${escape(model.meta.title)}</option>`).join("")}</select><div class="project-card"><strong>${escape(data.meta?.title || "Architecture")}</strong><p><span class="project-dot"></span>${data.groups.length} systems · ${count} components</p><small class="source-caption">${generated() ? "自动提取 · 可查看分析范围" : imported ? "本地导入" : `精选源码视图 · ${escape((data.meta.revision || "").slice(0, 8))}`}</small>${generated() ? `<button class="source-report-link" data-action="source-report">${icon("info")}分析报告${icon("arrow")}</button>` : ""}</div></div><div class="search-wrap">${icon("search")}<input id="search" aria-label="搜索组件、路径或函数" placeholder="搜索组件、函数…" value="${escape(state.query)}" autocomplete="off"><kbd>/</kbd></div><div id="tree-content"></div><div class="sidebar-section"><div class="nav-heading"><span class="eyebrow">Guided flows</span><span>${(data.flows || []).length}</span></div>${(data.flows || []).map((f) => `<button class="flow-button ${state.flow === f.id && state.mode === "flow" ? "active" : ""}" data-action="flow" data-id="${escape(f.id)}">${icon("flow")}<span>${escape(flowLabel(f))}</span></button>`).join("")}${!(data.flows || []).length ? `<div class="source-empty-flows">${generated() ? "静态分析未生成运行流程。可用路径探索查看已解析的引用连接。" : "当前模型没有预设流程。"}<button data-action="route">探索节点间的关系 →</button></div>` : ""}</div><div class="sidebar-section" style="margin-top:18px"><div class="nav-heading"><span class="eyebrow">Saved views</span><span>${saved.length}</span></div><div id="saved-list">${saved.length ? saved.map((v, i) => `<div class="bookmark"><button class="saved-load" data-action="load-view" data-id="${i}">${escape(v.name)}</button><button class="icon-btn" data-action="delete-view" data-id="${i}" aria-label="删除视图 ${escape(v.name)}">${icon("close")}</button></div>`).join("") : '<p class="micro" style="padding:0 19px 15px">把有价值的阅读位置留在这里。</p>'}</div></div><div class="sidebar-bottom">See every layer. Follow every connection.<button class="sidebar-connect" data-action="connect">${icon("link")}连接 Agent 与终端</button></div>`;
+      `<div class="sidebar-top"><label class="eyebrow" for="example-select">Explore a codebase</label><select id="example-select" class="example-select" aria-label="选择内置示例">${imported ? `<option value="imported" selected disabled>${generated() ? "当前分析结果" : "当前导入模型"}</option>` : ""}${Object.entries(window.SKYLENSE_MODELS || {}).map(([id, model]) => `<option value="${escape(id)}" ${!imported && id === data.meta?.id ? "selected" : ""}>${escape(model.meta.title)}</option>`).join("")}</select><div class="project-card"><strong>${escape(data.meta?.title || "Architecture")}</strong><p><span class="project-dot"></span>${data.groups.length} systems · ${count} components</p><small class="source-caption">${generated() ? "自动提取 · 可查看分析范围" : imported ? "本地导入" : `精选源码视图 · ${escape((data.meta.revision || "").slice(0, 8))}`}</small>${generated() ? `<button class="source-report-link" data-action="source-report">${icon("info")}分析报告${icon("arrow")}</button>` : ""}</div></div><div class="search-wrap">${icon("search")}<input id="search" aria-label="搜索组件、路径或函数" placeholder="搜索组件、函数…" value="${escape(state.query)}" autocomplete="off"><kbd>/</kbd></div><div id="tree-content"></div><div class="sidebar-section"><div class="nav-heading"><span class="eyebrow">${generated() ? "Source guides" : "Guided flows"}</span><span>${(data.flows || []).length}</span></div>${(data.flows || []).map((f) => `<button class="flow-button ${state.flow === f.id && state.mode === "flow" ? "active" : ""}" data-action="flow" data-id="${escape(f.id)}">${icon("flow")}<span>${escape(flowLabel(f))}</span></button>`).join("")}${!(data.flows || []).length ? `<div class="source-empty-flows">${generated() ? "当前范围未解析出可用于导览的关系。查看分析报告可区分不支持、未纳入与真实无连接的情况。" : "当前模型没有预设流程。"}<button data-action="route">探索节点间的关系 →</button></div>` : ""}</div><div class="sidebar-section" style="margin-top:18px"><div class="nav-heading"><span class="eyebrow">Saved views</span><span>${saved.length}</span></div><div id="saved-list">${saved.length ? saved.map((v, i) => `<div class="bookmark"><button class="saved-load" data-action="load-view" data-id="${i}">${escape(v.name)}</button><button class="icon-btn" data-action="delete-view" data-id="${i}" aria-label="删除视图 ${escape(v.name)}">${icon("close")}</button></div>`).join("") : '<p class="micro" style="padding:0 19px 15px">把有价值的阅读位置留在这里。</p>'}</div></div><div class="sidebar-bottom">See every layer. Follow every connection.<button class="sidebar-connect" data-action="connect">${icon("link")}连接 Agent 与终端</button></div>`;
     renderTree();
     applyLevelHighlights();
   }
@@ -958,12 +928,9 @@
     bounds: [],
     internal: [],
   };
-  const sceneCache = new Map();
-  function immediateChildren(id) {
-    return [...containers.values(), ...data.nodes].filter(
-      (n) => (n.parentId || (!containers.has(n.id) ? n.group : null)) === id,
-    );
-  }
+  const sceneCache = new Map(), canvasPages = new Map();
+  let layoutContextKey = "";
+  function immediateChildren(id) { return graphIndex.children.get(id) || []; }
   function buildLayout() {
     const f = state.mode === "flow" ? currentFlow() : null;
     let edges = filteredEdges(),
@@ -1006,8 +973,13 @@
       );
       focusNodes = f.nodes;
     }
+    const progressive = generated() && data.nodes.length > 200 && mode === "components" && !focusNodes;
+    if (progressive) { mode = "hierarchy"; open = []; if (!scope && data.groups.length === 1) scope = data.groups[0].id; }
+    layoutContextKey = JSON.stringify([scope, mode, state.lens, state.type, focusNodes]);
+    const page = canvasPages.get(layoutContextKey), pageSize = generated() && data.nodes.length > 200 ? focusNodes ? 24 : 12 : 120;
     const categoryGroups = state.categoryGroups && categoryGroupingAvailable();
     const key = JSON.stringify([
+      page, pageSize, state.selected,
       categoryGroups,
       scope,
       mode,
@@ -1022,6 +994,7 @@
         key,
         CodeLoomScene.build(data, {
           categoryGroups,
+          page, pageSize, maxVisible: generated() && data.nodes.length > 200 ? 24 : 120, revealIds: state.selected ? [state.selected] : [],
           scope,
           mode,
           open,
@@ -1031,7 +1004,9 @@
         }),
       );
     }
-    return sceneCache.get(key);
+    const result = sceneCache.get(key);
+    result.progressive = progressive;
+    return result;
   }
   function renderContextStrip() {
     const host = $("#context-strip");
@@ -1141,10 +1116,7 @@
       .map((p) => {
         const n = p.n,
           isContainer = containers.has(n.id),
-          counts = CodeLoomContext.describe(data, {
-            nodeId: n.id,
-            type: state.type,
-          }),
+          counts = graphIndex.boundary(n.id, state.type),
           memberIds = members(n.id),
           selected = selectedIds.has(n.id),
           t = CodeLoomSemantics.node(n.kind);
@@ -1207,10 +1179,12 @@
                 : state.trace.direction
                 ? `${state.trace.direction === "upstream" ? "上游" : "下游"}可达关系 · ${state.trace.nodes.length} 个组件`
                 : `${escape(label(state.trace.start))} → ${escape(label(state.trace.end))}`
-              : `${layout.items.length} 个可见节点 · ${layout.relations.length} 个关系节点 · 点击关系查看成员与层级`;
+              : `${layout.items.length} 个可见节点 · ${layout.relations.length} 个关系节点${layout.progressive ? " · 按模块逐层阅读完整索引" : " · 点击关系查看成员与层级"}`;
     $("#canvas-note").innerHTML =
       icon("flow") +
-      `<span>${note}${blocked ? ` · ${blocked} 条支线未能路由（可在关系详情查看）` : ""}</span>`;
+      `<span>${note}${layout.projection?.limited ? ` · 已按层级折叠 ${layout.projection.totalNodes} 个对象，展开模块继续阅读` : ""}${blocked ? ` · ${blocked} 条支线未能路由（可在关系详情查看）` : ""}</span>`;
+    const paging = layout.projection?.paging;
+    if (paging?.totalPages > 1) $("#canvas-note").insertAdjacentHTML("beforeend", `<div class="canvas-paging"><button data-action="canvas-page" data-value="${paging.page - 1}" ${paging.page === 0 ? "disabled" : ""} aria-label="上一页对象">←</button><span>${paging.page + 1} / ${paging.totalPages} 页 · ${paging.totalItems} 个对象${paging.offPageEdgeCount ? ` · ${paging.offPageEdgeCount} 条跨页关系保留在完整索引` : ""}</span><button data-action="canvas-page" data-value="${paging.page + 1}" ${paging.page + 1 === paging.totalPages ? "disabled" : ""} aria-label="下一页对象">→</button></div>`);
     const foldedSelection = state.relation
       ? layout.internal
           .flatMap((entry) => entry.edgeIds)
@@ -1585,11 +1559,11 @@
         incoming = ctx.incoming.map(edgeById),
         outgoing = ctx.outgoing.map(edgeById),
         internal = ctx.internal.map(edgeById);
-      return `<div class="detail-intro"><b>直接连接</b><p>入向：谁指向当前对象。出向：当前对象指向谁。筛选：${state.type === "all" ? "全部类型" : escape(CodeLoomSemantics.relation(state.type).label)}。</p></div>${contextSummary(ctx)}<div class="section-label">${icon("back")}入向连接<span>${incoming.length}</span></div>${incoming.map((e) => connection(e, true)).join("") || '<p class="empty-hint">没有符合筛选的入向连接。</p>'}<div class="section-label" style="margin-top:23px">${icon("arrow")}出向连接<span>${outgoing.length}</span></div>${outgoing.map((e) => connection(e, false)).join("") || '<p class="empty-hint">没有符合筛选的出向连接。</p>'}${isContainer ? `<div class="section-label" style="margin-top:23px">内部关系<span>${internal.length}</span></div>${internal.map(rawEdgeCard).join("")}` : ""}`;
+      return `<div class="detail-intro"><b>直接连接</b><p>入向：谁指向当前对象。出向：当前对象指向谁。筛选：${state.type === "all" ? "全部类型" : escape(CodeLoomSemantics.relation(state.type).label)}。</p></div>${contextSummary(ctx)}${sourceDiagnostics(n)}<div class="section-label">${icon("back")}入向连接<span>${incoming.length}</span></div>${incoming.map((e) => connection(e, true)).join("") || '<p class="empty-hint">没有符合筛选的入向连接。</p>'}<div class="section-label" style="margin-top:23px">${icon("arrow")}出向连接<span>${outgoing.length}</span></div>${outgoing.map((e) => connection(e, false)).join("") || '<p class="empty-hint">没有符合筛选的出向连接。</p>'}${isContainer ? `<div class="section-label" style="margin-top:23px">内部关系<span>${internal.length}</span></div>${internal.map(rawEdgeCard).join("")}` : ""}`;
     }
     const edges = [...inc.incoming, ...inc.outgoing],
       ctx = selectionContext();
-    return `<div class="object-tags">${categoryBadge(n)}<span class="badge">${isContainer ? `${members(n.id).length} 个组件` : n.sourceRole === "symbol" ? "源码声明" : `${n.functions?.length || 0} 个${generated() ? "符号" : "函数"}`}</span></div><div class="section-label">职责 / RESPONSIBILITY</div><p class="detail-text">${escape(n.description || n.summary || "未提供职责说明。")}</p>${contextSummary(ctx)}<div class="section-label">连接构成 <span>${edges.length} 条原始边 · 全类型</span></div>${typeBreakdown(edges)}<div class="section-label" style="margin-top:20px">${isContainer ? "结构入口" : "接口与位置"}</div><button class="connection" data-action="tab" data-value="contracts">${icon(isContainer ? "layers" : "code")}<span>${isContainer ? `查看 ${immediateChildren(n.id).length} 个直接子项` : n.sourceRole === "symbol" ? "查看声明与源码依据" : `查看 ${n.functions?.length || 0} 个${generated() ? "声明 / 章节" : "函数契约"}`}<small>${isContainer ? "继续逐层深入" : generated() ? "精确行号、源文件与静态关系" : "职责、输入、输出分别呈现"}</small></span>${icon("arrow")}</button>${n.path ? `<details class="location-details"><summary>${icon("document")}源码位置</summary><code>${escape(n.path)}</code></details>` : ""}${n.parentId || n.group ? `<button class="btn parent-button" data-action="scope" data-id="${escape(n.parentId || n.group)}">${icon("layers")}进入父模块 ${escape(label(n.parentId || n.group))}</button>` : ""}`;
+    return `<div class="object-tags">${categoryBadge(n)}<span class="badge">${isContainer ? `${members(n.id).length} 个组件` : n.sourceRole === "symbol" ? "源码声明" : `${n.functions?.length || 0} 个${generated() ? "符号" : "函数"}`}</span></div><div class="section-label">职责 / RESPONSIBILITY</div><p class="detail-text">${escape(n.description || n.summary || "未提供职责说明。")}</p>${contextSummary(ctx)}${sourceDiagnostics(n)}<div class="section-label">连接构成 <span>${edges.length} 条原始边 · 全类型</span></div>${typeBreakdown(edges)}<div class="section-label" style="margin-top:20px">${isContainer ? "结构入口" : "接口与位置"}</div><button class="connection" data-action="tab" data-value="contracts">${icon(isContainer ? "layers" : "code")}<span>${isContainer ? `查看 ${immediateChildren(n.id).length} 个直接子项` : n.sourceRole === "symbol" ? "查看声明与源码依据" : `查看 ${n.functions?.length || 0} 个${generated() ? "声明 / 章节" : "函数契约"}`}<small>${isContainer ? "继续逐层深入" : generated() ? "精确行号、源文件与静态关系" : "职责、输入、输出分别呈现"}</small></span>${icon("arrow")}</button>${n.path ? `<details class="location-details"><summary>${icon("document")}源码位置</summary><code>${escape(n.path)}</code></details>` : ""}${n.parentId || n.group ? `<button class="btn parent-button" data-action="scope" data-id="${escape(n.parentId || n.group)}">${icon("layers")}进入父模块 ${escape(label(n.parentId || n.group))}</button>` : ""}`;
   }
   function select(id) {
     if (!all.has(id)) return;
@@ -1599,6 +1573,7 @@
     state.levelFocus = "auto";
     state.relation = null;
     state.selected = id;
+    canvasPages.clear();
     state.tab = "overview";
     state.query = "";
     if (state.lens !== "scope") {
@@ -1788,7 +1763,7 @@
   }
 
   function cancelSourceJob() {
-    if (sourceJob) sourceJob.controller.abort();
+    if (sourceJob) { sourceJob.controller.abort(); clearInterval(sourceJob.timer); }
     sourceJob = null;
     sourceSerial += 1;
   }
@@ -1802,12 +1777,12 @@
       saved = [];
       routeDraft = null; routeResult = null;
       Object.assign(state, {
-        scope: null, selected: null, trace: null, flow: null, step: 0,
+        scope: parsed.groups.length === 1 ? parsed.groups[0].id : null, selected: null, trace: null, flow: null, step: 0,
         mode: "hierarchy", tab: "overview", query: "", compare: [], expanded: new Set(),
         lens: "scope", levelFocus: "auto", focusDimming: true, categoryGroups: true,
         present: false, openContainers: [], relation: null, lastRelation: null, type: "all",
       });
-      sceneCache.clear();
+      sceneCache.clear(); canvasPages.clear();
       render();
       readingHistory.length = 0;
       cameraCache.clear();
@@ -1823,6 +1798,19 @@
       ? [(value.path || value.file || value.name || "") + (value.line ? ":" + value.line : ""), value.specifier, value.reason || value.message || value.detail].filter(Boolean).join(" · ") || JSON.stringify(value)
       : String(value ?? "");
   }
+  function languageCoverage(languages) {
+    if (!Array.isArray(languages) || !languages.length) return "";
+    return `<div class="source-language-table"><div class="section-label">语言覆盖 · 当前读取范围</div><table><thead><tr><th>语言</th><th>文件</th><th>解析</th><th>符号</th><th>有关联</th></tr></thead><tbody>${languages.map(row => `<tr><td>${escape(row.language)}</td><td>${row.files}</td><td>${row.parsedFiles}</td><td>${row.symbols}</td><td>${row.connectedFiles}</td></tr>`).join("")}</tbody></table><p>“解析”表示支持该语言的静态提取；不等于完整的运行时调用图。“有关联”按文件统计。</p></div>`;
+  }
+  function sourceDiagnostics(n) {
+    if (!generated() || containers.has(n.id)) return "";
+    const file = n.sourceRole === "file" ? n : data.nodes.find(item => item.sourceRole === "file" && item.path === n.path);
+    if (!file) return "";
+    const a = file.analysis || {}, unresolved = (data.meta.ingestion?.unresolved || []).filter(item => item.file === n.path);
+    const rows = unresolved.slice(0, 4).map(item => `<li><code>${escape(item.specifier || "reference")}</code> · L${item.line || "?"}<small>${escape(item.reason || "未解析")}</small></li>`).join("");
+    const note = a.status === "metadata-only" ? "当前对象仅保留文件信息，未分析文件内容。" : ["preview-only", "unsupported"].includes(a.status) ? "当前语言提供源码预览，尚未支持语义关系解析；零条边不代表没有依赖。" : !incident(n.id).incoming.length && !incident(n.id).outgoing.length ? "当前对象没有已解析的直接关系；文件级引用与声明级调用分别展示。" : "关系保留源文件行号。静态连接不表示已验证运行时行为。";
+    return `<div class="source-node-status"><strong>${escape(a.language || file.language || "文件")} · ${a.parser?.engine === "tree-sitter" ? "语法树索引" : "分析范围"}</strong><p>${note}</p>${n.id !== file.id ? `<button class="btn" data-action="select" data-id="${escape(file.id)}">${icon("document")}查看所属文件的引用</button>` : ""}${unresolved.length ? `<details><summary>${unresolved.length} 项引用未解析</summary><ul>${rows}</ul></details>` : ""}${file.url ? `<a href="${escape(file.url)}" target="_blank" rel="noopener noreferrer">打开固定版本源文件 ↗</a>` : ""}<button class="source-report-link" data-action="source-report">查看完整分析报告 →</button></div>`;
+  }
   function sourceReport(model) {
     const report = model.meta?.ingestion || {}, counts = report.counts || report;
     const number = (...keys) => {
@@ -1835,19 +1823,19 @@
     };
     const details = (title, value) => {
       if (value === undefined || value === null || value === false) return "";
-      const fieldNames = { hierarchy: "层级", symbols: "符号", relationships: "关系", execution: "执行代码", aiInference: "AI 推断", unsupported: "当前限制", maxFiles: "文件上限", maxFileBytes: "单文件字节上限", maxTotalBytes: "总文本字节上限" };
+      const fieldNames = { hierarchy: "层级", symbols: "符号", relationships: "关系", readingGuides: "静态导览", execution: "执行代码", aiInference: "AI 推断", unsupported: "当前限制", maxFiles: "文件上限", maxFileBytes: "单文件字节上限", maxTotalBytes: "总文本字节上限" };
       const items = Array.isArray(value) ? value : typeof value === "object" ? Object.entries(value).map(([key, item]) => `${fieldNames[key] || key}: ${typeof item === "boolean" ? item ? "是" : "否" : reportText(item)}`) : [value];
       if (!items.length) return "";
       return `<details class="source-report-details"><summary>${escape(title)} <small>${items.length}</small></summary><ul>${items.slice(0, 80).map(item => `<li>${escape(reportText(item))}</li>`).join("")}</ul>${items.length > 80 ? `<p>另有 ${items.length - 80} 项；完整记录保留在导出的 JSON 中。</p>` : ""}</details>`;
     };
     const source = model.meta?.source || report.source;
     const sourceNames = { "browser-files": "浏览器本地读取", "local-folder": "本地文件夹", "local-file": "本地文件" };
-    return `<div class="source-report-summary"><span class="source-eyebrow">STATIC SOURCE MAP</span><h3>${escape(model.meta?.title || "来源分析")}</h3><p>文件层级与静态引用组成可追溯地图。未推断运行顺序，也不表示完整的运行时调用图。</p>${source ? `<small>${escape(typeof source === "object" ? source.url || source.label || source.kind || "" : sourceNames[source] || source)}</small>` : ""}</div><div class="source-metrics">${[[number("scannedFiles", "scanned", "inputEntries"), "已扫描文件"], [number("acceptedFiles"), "已纳入文件"], [number("analyzedFiles", "analyzed", "textFiles"), "文本已分析"], [number("metadataOnlyFiles"), "仅文件信息"], [number("skippedFiles", "skipped", "excludedFiles"), "已记录跳过"], [number("truncatedFiles"), "文本预览截断"]].map(([value, name]) => `<div><b>${escape(value)}</b><span>${name}</span></div>`).join("")}</div>${report.truncated ? '<p class="source-private-note">读取范围达到上限；这张地图仅覆盖报告记录的部分内容。</p>' : ""}<div class="source-model-metrics"><span>${model.nodes.length} 个节点</span><span>${model.edges.length} 条关系</span><span>${(model.hierarchy || model.groups).length} 个层级容器</span></div>${details("分析能力", report.capabilities)}${details("覆盖限制与提示", report.warnings || report.limitations)}${details("跳过项与原因", report.skipped)}${details("截断项", report.truncated)}${details("未解析的引用", report.unresolved)}${details("读取预算", report.limits)}${details("解析器与语言", report.languages || report.parsers)}<p class="source-private-note">本次模型保留在当前页面会话。导出 JSON 可以继续在 CLI 或 Agent 中使用；导出文件会包含已分析的文本摘录。</p>`;
+    return `<div class="source-report-summary"><span class="source-eyebrow">STATIC SOURCE MAP</span><h3>${escape(model.meta?.title || "来源分析")}</h3><p>源码语法树与跨文件引用组成可追溯地图。完整索引与摘录预览分别统计；动态运行行为不会被当作已验证事实。</p>${source ? `<small>${escape(typeof source === "object" ? source.url || source.label || source.kind || "" : sourceNames[source] || source)}</small>` : ""}</div><div class="source-metrics">${[[number("scannedFiles", "scanned", "inputEntries"), "已扫描文件"], [number("acceptedFiles"), "已纳入文件"], [number("analyzedFiles", "analyzed", "textFiles"), "文本已分析"], [number("metadataOnlyFiles"), "仅文件信息"], [number("skippedFiles", "skipped", "excludedFiles"), "已记录跳过"], [number("truncatedFiles"), "文本预览截断"]].map(([value, name]) => `<div><b>${escape(value)}</b><span>${name}</span></div>`).join("")}</div>${(Array.isArray(report.truncated) ? report.truncated.length : report.truncated) ? '<p class="source-private-note">读取范围达到上限；这张地图仅覆盖报告记录的部分内容。</p>' : ""}<div class="source-model-metrics"><span>${model.nodes.length} 个节点</span><span>${model.edges.length} 条关系</span><span>${(model.hierarchy || model.groups).length} 个层级容器</span></div>${details("索引完整性", report.indexCompleteness)}${details("增量语法索引", report.syntax)}${details("分析能力", report.capabilities)}${details("覆盖限制与提示", report.warnings || report.limitations)}${details("跳过项与原因", report.skipped)}${details("截断项", report.truncated)}${details("未解析的引用", report.unresolved)}${details("资源上限", report.limits)}${languageCoverage(report.languages)}<p class="source-private-note">本次模型保留在当前页面会话。导出 JSON 可以继续在 CLI 或 Agent 中使用；导出文件会包含已分析的文本摘录。</p>`;
   }
   function openSource() {
     cancelSourceJob(); sourcePreview = null;
     sourceTab = "files";
-    modal("打开一个来源", `<div class="source-intro"><span class="source-eyebrow">YOUR NEXT MAP</span><h3>从真实内容，走进结构。</h3><p>选择文件夹、文件或网址，让 Skylense 自动建立层级、静态关联和来源预览。</p></div><div class="source-tabs" role="tablist" aria-label="来源类型"><button role="tab" aria-selected="true" aria-controls="source-panel-files" id="source-tab-files" data-action="source-tab" data-value="files">${icon("layers")}文件与文件夹</button><button role="tab" aria-selected="false" aria-controls="source-panel-url" id="source-tab-url" data-action="source-tab" data-value="url" tabindex="-1">${icon("link")}GitHub / 网页</button><button role="tab" aria-selected="false" aria-controls="source-panel-text" id="source-tab-text" data-action="source-tab" data-value="text" tabindex="-1">${icon("document")}粘贴文本</button></div><div class="source-panel" id="source-panel-files" role="tabpanel" aria-labelledby="source-tab-files"><div class="source-file-grid"><button class="source-choice" data-action="source-folder">${icon("layers")}<b>打开文件夹</b><span>保留目录层级，自动提取支持语言的引用关系。</span><small>在此浏览器本地读取</small></button><button class="source-choice" data-action="source-files">${icon("document")}<b>选择文件</b><span>代码、文档、网页 HTML 或其他文件，可多选。</span><small>未知语言保留文本，二进制保留文件信息</small></button></div><input type="file" id="source-folder-input" webkitdirectory directory multiple hidden><input type="file" id="source-files-input" multiple hidden><p class="source-private-note">源码与文档按文本读取，不执行代码或网页脚本。通常排除依赖目录、版本记录与敏感配置；具体范围会在分析报告中列出。</p></div><div class="source-panel" id="source-panel-url" role="tabpanel" aria-labelledby="source-tab-url" hidden><label for="source-url">公开 GitHub 仓库或网页地址</label><div class="source-url-row"><input id="source-url" type="url" placeholder="https://github.com/owner/repository" autocomplete="off" spellcheck="false"><button class="btn primary" data-action="source-url">${icon("arrow")}分析网址</button></div><p class="source-private-note">${localBridge ? "由当前本地 CLI 服务获取内容。网页链接不等于背后的源码仓库；只分析实际可读取的内容。" : "公开仓库使用 GitHub 接口。网页能否直接读取取决于站点的跨域设置；受限时可用本地 CLI 打开，或上传保存的 HTML。"}</p></div><div class="source-panel" id="source-panel-text" role="tabpanel" aria-labelledby="source-tab-text" hidden><label for="source-text-name">文件名（扩展名用于选择分析方式）</label><input id="source-text-name" value="notes.md" maxlength="120" autocomplete="off"><label for="source-text">粘贴源码、文档或 HTML</label><textarea id="source-text" rows="7" spellcheck="false" placeholder="粘贴你希望探索的内容…"></textarea><div class="source-text-actions"><button class="btn primary" data-action="source-text">${icon("arrow")}分析文本</button></div></div><div class="source-limits"><label for="source-max-files">文件预算<select id="source-max-files"><option value="100">100 个文件 · 快速查看</option><option value="300" selected>300 个文件 · 标准</option><option value="1000">1,000 个文件 · 更广覆盖</option></select></label><span>超过预算会明确报告，结果可能只覆盖部分内容。</span></div><details class="source-capabilities"><summary>这次会生成什么？</summary><p>所有可接收的文件都会按其支持程度处理：目录和文件层级、JS / TS / Python 的静态引用、文档与网页内容，以及其他类型的文件信息。未解析的语言、动态导入、运行时行为与受限内容会在报告中说明。无需模型 API 密钥。</p></details><div id="source-feedback" aria-live="polite"></div>`);
+    modal("打开一个来源", `<div class="source-intro"><span class="source-eyebrow">YOUR NEXT MAP</span><h3>从真实内容，走进结构。</h3><p>选择文件夹、文件或网址，让 Skylense 自动建立层级、静态关联和来源预览。</p></div><div class="source-tabs" role="tablist" aria-label="来源类型"><button role="tab" aria-selected="true" aria-controls="source-panel-files" id="source-tab-files" data-action="source-tab" data-value="files">${icon("layers")}文件与文件夹</button><button role="tab" aria-selected="false" aria-controls="source-panel-url" id="source-tab-url" data-action="source-tab" data-value="url" tabindex="-1">${icon("link")}GitHub / 网页</button><button role="tab" aria-selected="false" aria-controls="source-panel-text" id="source-tab-text" data-action="source-tab" data-value="text" tabindex="-1">${icon("document")}粘贴文本</button></div><div class="source-panel" id="source-panel-files" role="tabpanel" aria-labelledby="source-tab-files"><div class="source-file-grid"><button class="source-choice" data-action="source-folder">${icon("layers")}<b>打开文件夹</b><span>保留目录层级，自动提取支持语言的引用关系。</span><small>在此浏览器本地读取</small></button><button class="source-choice" data-action="source-files">${icon("document")}<b>选择文件</b><span>代码、文档、网页 HTML 或其他文件，可多选。</span><small>未知语言保留文本，二进制保留文件信息</small></button></div><input type="file" id="source-folder-input" webkitdirectory directory multiple hidden><input type="file" id="source-files-input" multiple hidden><p class="source-private-note">源码与文档按文本读取，不执行代码或网页脚本。通常排除依赖目录、版本记录与敏感配置；具体范围会在分析报告中列出。</p></div><div class="source-panel" id="source-panel-url" role="tabpanel" aria-labelledby="source-tab-url" hidden><label for="source-url">公开 GitHub 仓库或网页地址</label><div class="source-url-row"><input id="source-url" type="url" placeholder="https://github.com/owner/repository" autocomplete="off" spellcheck="false"><button class="btn primary" data-action="source-url">${icon("arrow")}分析网址</button></div><p class="source-private-note">${localBridge ? "由当前本地 CLI 服务获取内容。网页链接不等于背后的源码仓库；只分析实际可读取的内容。" : "公开仓库使用 GitHub 接口。网页能否直接读取取决于站点的跨域设置；受限时可用本地 CLI 打开，或上传保存的 HTML。"}</p></div><div class="source-panel" id="source-panel-text" role="tabpanel" aria-labelledby="source-tab-text" hidden><label for="source-text-name">文件名（扩展名用于选择分析方式）</label><input id="source-text-name" value="notes.md" maxlength="120" autocomplete="off"><label for="source-text">粘贴源码、文档或 HTML</label><textarea id="source-text" rows="7" spellcheck="false" placeholder="粘贴你希望探索的内容…"></textarea><div class="source-text-actions"><button class="btn primary" data-action="source-text">${icon("arrow")}分析文本</button></div></div><div class="source-limits"><label for="source-max-files">分析范围<select id="source-max-files"><option value="100">100 个文件 · 快速查看</option><option value="all" selected>完整索引 · 全部可读取源码</option><option value="300">300 个文件 · 快速预览</option><option value="1000">1,000 个文件 · 更广覆盖</option></select></label><span>完整索引保留所有可读取源码。可选快速预览；解析与源码预览分别报告。</span></div><details class="source-capabilities"><summary>这次会生成什么？</summary><p>所有可接收的文件都会按其支持程度处理：目录和源码声明层级、24 种语法解析器、项目内引用解析、JS / TS 编译器符号绑定、Julia 方法候选集，以及文档和网页内容。已有关系还会组成可逐步阅读的静态导览。动态计算的目标、运行时分派与未支持的语言会在报告中说明。无需模型 API 密钥。</p></details><div id="source-feedback" aria-live="polite"></div>`);
   }
   function selectSourceTab(tab) {
     if (!["files", "url", "text"].includes(tab) || sourceJob) return;
@@ -1869,7 +1857,8 @@
     const status = $("#source-progress-text");
     if (!status) return;
     const payload = typeof progress === "string" ? { message: progress } : progress || {};
-    status.textContent = payload.message || payload.path || payload.phase || "正在分析可读取的内容…";
+    const names = { repository: "读取仓库信息", revision: "固定源码版本", tree: "建立文件清单", github: "读取 GitHub 源文件", files: "读取源文件", fetch: "下载内容", syntax: "建立语法索引", semantic: "解析跨文件符号", build: "解析声明与关系", analyze: "解析声明与关系" };
+    status.textContent = payload.message || [names[payload.phase] || "分析来源", payload.path].filter(Boolean).join(" · ");
     const meter = $("#source-progress-meter");
     const done = payload.completed ?? payload.current ?? payload.loaded, total = payload.total;
     if (Number.isFinite(done) && Number.isFinite(total) && total > 0) { meter.max = total; meter.value = Math.min(done, total); }
@@ -1889,10 +1878,15 @@
   async function runSource(kind, input) {
     if (!$("#source-feedback")) openSource();
     cancelSourceJob(); sourcePreview = null;
-    const job = { id: ++sourceSerial, controller: new AbortController() };
+    const job = { id: ++sourceSerial, controller: new AbortController(), started: performance.now() };
     sourceJob = job; sourceBusy(true);
-    $("#source-feedback").innerHTML = `<div class="source-progress"><div>${icon("layers")}<strong>建立你的来源地图</strong><button class="btn" data-action="source-cancel">取消</button></div><progress id="source-progress-meter" aria-label="来源分析进度"></progress><p id="source-progress-text">正在准备读取…</p></div>`;
-    const maxFiles = Number($("#source-max-files")?.value || 300);
+    $("#source-feedback").innerHTML = `<div class="source-progress"><div>${icon("layers")}<strong>建立你的来源地图</strong><button class="btn" data-action="source-cancel">取消</button></div><progress id="source-progress-meter" aria-label="来源分析进度"></progress><p id="source-progress-text">正在准备读取…</p><small id="source-progress-time">0 秒 · 可随时取消</small></div>`;
+    job.timer = setInterval(() => {
+      const timer = $("#source-progress-time");
+      if (sourceJob === job && timer) timer.textContent = `${Math.floor((performance.now() - job.started) / 1000)} 秒 · 可随时取消`;
+    }, 1000);
+    const selectedLimit = $("#source-max-files")?.value;
+    const maxFiles = selectedLimit && selectedLimit !== "all" ? Number(selectedLimit) : undefined;
     const options = { maxFiles, signal: job.controller.signal, onProgress: progress => sourceProgress(job, progress) };
     try {
       let parsed;
@@ -1900,7 +1894,7 @@
       else if (kind === "url" && localBridge) parsed = await bridgeRequest("/api/analyze", { method: "POST", signal: options.signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: input, maxFiles }) });
       else {
         if (!window.SkylenseSources) throw new Error("来源分析模块未载入，请刷新页面或重新下载最新版。");
-        parsed = kind === "url" ? await SkylenseSources.analyzeURL(input, options) : await SkylenseSources.analyzeFiles(input, options);
+        parsed = await SkylenseAnalysisWorker.analyze(kind, input, options);
       }
       if (sourceJob !== job || job.controller.signal.aborted || !$("#modal").open) return;
       AtlasGraph.validate(parsed);
@@ -1930,11 +1924,15 @@
       const canRetryURL = kind === "url" && !localBridge && !["PRIVATE_URL", "INVALID_URL"].includes(err.code);
       const command = kind === "url" ? "skylense open '" + String(input).replace(/'/g, "'\\''") + "'" : "skylense open /absolute/path/to/folder";
       $("#source-feedback").innerHTML = `<div class="source-error" role="alert"><strong>还未完成这次分析</strong><p>${escape(err.message || "来源读取失败")}</p>${kind === "initial" ? "<p>本地连接失效时，请重新使用终端或 Agent 刚返回的完整链接打开，并保持对应服务运行。</p>" : ""}${canRetryURL ? `<p>浏览器可能无法跨域读取此站点，也可能遇到 GitHub 速率限制。可在终端运行下面的命令，或改为上传保存的 HTML / 粘贴文本。</p><code>${escape(command)}</code><button class="btn" data-action="copy-command" data-value="${escape(command)}">复制 CLI 命令</button>` : ""}<small>当前画布和已有模型未改变。</small></div>`;
-    }
+    } finally { clearInterval(job.timer); }
   }
   async function initializeLocalSource() {
     if (!localBridge) {
-      if (initialURL.searchParams.get("open") === "source") openSource();
+      if (initialURL.searchParams.get("open") === "source") {
+        openSource();
+        const source = initialURL.searchParams.get("source");
+        if (source) { selectSourceTab("url"); $("#source-url").value = source.slice(0, 4096); $("#source-url").focus(); }
+      }
       return;
     }
     openSource();
@@ -2204,6 +2202,7 @@
         rememberRelation();
       } else selectRelation(previous.edgeIds, false, previous.parentEdgeIds);
     },
+    "canvas-page": value => { canvasPages.set(layoutContextKey, Number(value)); renderCanvas(true); hash(); },
     home: () => scope(null),
     scope: (_, id) => scope(id),
     select: (_, id) => select(id),
@@ -2229,7 +2228,7 @@
       if (value === "flow") {
         if (!(data.flows || []).length) {
           state.mode = "components";
-          toast(generated() ? "静态分析不生成运行流程；可用「路径」探索真实引用关系。" : "此模型没有预设流程，可用「路径」探索已有连接。");
+          toast(generated() ? "当前范围尚无可用于导览的已解析关系，请查看分析报告。" : "此模型没有预设流程，可用「路径」探索已有连接。");
         } else {
           state.flow = state.flow || data.flows[0].id;
           state.selected = currentFlow().nodes[0];
@@ -2536,7 +2535,7 @@
     cancelSourceJob();
     const serial = sourceSerial;
     try {
-      if (file.size > 15 * 1024 * 1024) throw new Error("JSON 文件超过 15 MB。");
+      if (file.size > 128 * 1024 * 1024) throw new Error("JSON 文件超过当前 128 MB 资源上限。");
       const parsed = JSON.parse(await file.text());
       if (serial !== sourceSerial) return;
       activateModel(parsed);

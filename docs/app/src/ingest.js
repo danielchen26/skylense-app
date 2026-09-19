@@ -1,13 +1,13 @@
 /* Skylense source analysis. Pure, bounded, and intentionally independent of execution. */
 (function (root) {
   "use strict";
-  const LIMITS = Object.freeze({ maxFiles: 300, maxFileBytes: 256 * 1024, maxTotalBytes: 10 * 1024 * 1024, maxEntities: 1000, maxSymbolsPerFile: 100, maxSymbolsTotal: 2000, maxEvidenceBytes: 1024 * 1024, maxSerializedBytes: 14 * 1024 * 1024, maxEdges: 3000 });
+  const LIMITS = Object.freeze({ maxFiles: 300, maxFileBytes: 256 * 1024, maxTotalBytes: 10 * 1024 * 1024, maxEntities: 1000, maxSymbolsPerFile: 100, maxSymbolsTotal: 2000, maxDocumentSymbolsPerFile: 20, maxDocumentSymbolsTotal: 200, maxDocumentNavigation: 100, maxEvidenceBytes: 1024 * 1024, maxSerializedBytes: 14 * 1024 * 1024, maxEdges: 3000 });
   const EXCLUDED_DIRS = new Set([".git", ".hg", ".svn", "node_modules", ".venv", "venv", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox", ".cache", "coverage", ".next", ".nuxt", "dist", "build", "target", "vendor"]);
-  const CODE = { py: "python", pyw: "python", js: "javascript", jsx: "javascript", mjs: "javascript", cjs: "javascript", ts: "typescript", tsx: "typescript", mts: "typescript", cts: "typescript", go: "go", rs: "rust", java: "java", c: "c", h: "c", cpp: "cpp", hpp: "cpp", cc: "cpp", cs: "csharp", rb: "ruby", php: "php", swift: "swift", kt: "kotlin", scala: "scala", sh: "shell", bash: "shell", zsh: "shell", sql: "sql", r: "r", lua: "lua", vue: "vue", svelte: "svelte" };
+  const CODE = { jl: "julia", py: "python", pyw: "python", js: "javascript", jsx: "javascript", mjs: "javascript", cjs: "javascript", ts: "typescript", tsx: "typescript", mts: "typescript", cts: "typescript", go: "go", rs: "rust", java: "java", c: "c", h: "c", cpp: "cpp", hpp: "cpp", cc: "cpp", cs: "csharp", rb: "ruby", php: "php", swift: "swift", kt: "kotlin", scala: "scala", sh: "shell", bash: "shell", zsh: "shell", sql: "sql", r: "r", lua: "lua", vue: "vue", svelte: "svelte" };
   const TEXT = new Set(["txt", "md", "mdx", "markdown", "rst", "html", "htm", "css", "scss", "sass", "less", "json", "jsonc", "yaml", "yml", "toml", "ini", "cfg", "conf", "xml", "csv", "tsv", "log", "lock", "properties", "gitignore", "gitattributes", "editorconfig", "dockerignore", "svg"]);
   const IMAGE = new Set(["png", "jpg", "jpeg", "gif", "webp", "ico", "avif", "bmp", "tif", "tiff", "heic"]);
   const ARCHIVE = new Set(["zip", "tar", "gz", "bz2", "xz", "7z", "rar", "tgz"]);
-  const BINARY = new Set(["wasm", "exe", "dll", "so", "dylib", "a", "o", "obj", "class", "pyc", "pyo", "db", "sqlite", "sqlite3", "woff", "woff2", "ttf", "otf", "mp3", "mp4", "mov", "webm", "wav", "ogg", "flac", "parquet", "npy", "npz", "pickle", "pkl", "pt", "pth", "bin"]);
+  const BINARY = new Set(["wasm", "exe", "dll", "so", "dylib", "a", "o", "obj", "class", "pyc", "pyo", "db", "sqlite", "sqlite3", "woff", "woff2", "ttf", "otf", "mp3", "mp4", "mov", "webm", "wav", "ogg", "flac", "parquet", "npy", "npz", "pickle", "pkl", "pt", "pth", "safetensors", "onnx", "h5", "hdf5", "ckpt", "bin"]);
   const encoder = new TextEncoder();
   const baseName = (path) => path.split("/").pop();
   function isSensitive(path) {
@@ -27,6 +27,23 @@
     if (["md", "mdx", "markdown"].includes(ext)) return { kind: "document", language: "markdown", text: true, sensitive: false };
     if (TEXT.has(ext) || /^(?:readme|license|licence|copying|notice|makefile|dockerfile|gemfile|procfile)$/i.test(name)) return { kind: ["json", "yaml", "yml", "toml", "ini", "cfg", "conf", "lock"].includes(ext) ? "config" : "document", language: ext || "text", text: true, sensitive: false };
     return { kind: IMAGE.has(ext) ? "image" : ARCHIVE.has(ext) ? "archive" : ext === "pdf" ? "pdf" : BINARY.has(ext) ? "binary" : "file", language: null, text: false, sensitive: false };
+  }
+  // The same deterministic order controls every transport before file/content
+  // budgets. Source trees win over documents, generated reports and agent notes.
+  function pathPriority(path) {
+    const value = String(path).replace(/\\/g, "/"), info = classifyPath(value);
+    const parts = value.toLowerCase().split("/"), name = parts.at(-1);
+    const auxiliary = parts.some(part => [".claude", ".codex", ".agents", "archive", "archives", "reports", "results"].includes(part));
+    const sourceRoot = parts.some(part => ["src", "lib", "app", "apps", "packages", "server", "client"].includes(part));
+    if (info.kind === "source") return auxiliary ? 4 : sourceRoot ? 0 : 1;
+    if (info.kind === "config") return auxiliary ? 5 : 2;
+    if (parts.length === 1 && /^(readme|license|licence|notice|copying)(\.|$)/.test(name)) return 2;
+    if (info.text) return auxiliary ? 6 : 3;
+    return 7;
+  }
+  function comparePaths(a, b) {
+    const x = typeof a === "string" ? a : a.path, y = typeof b === "string" ? b : b.path;
+    return pathPriority(x) - pathPriority(y) || (x < y ? -1 : x > y ? 1 : 0);
   }
   function normalizePath(input) {
     if (typeof input !== "string" || input.length > 4096 || /[\u0000-\u001f\u007f]/.test(input)) return null;
@@ -240,13 +257,18 @@
   }
   function build(entries, options = {}) {
     if (!Array.isArray(entries)) throw new TypeError("entries must be an array of file descriptors.");
-    const limits = { maxFiles: bound(options.maxFiles, LIMITS.maxFiles, 1000), maxFileBytes: bound(options.maxFileBytes, LIMITS.maxFileBytes, LIMITS.maxFileBytes), maxTotalBytes: bound(options.maxTotalBytes, LIMITS.maxTotalBytes, LIMITS.maxTotalBytes), maxEntities: LIMITS.maxEntities, maxSymbolsPerFile: LIMITS.maxSymbolsPerFile, maxSymbolsTotal: LIMITS.maxSymbolsTotal, maxEvidenceBytes: LIMITS.maxEvidenceBytes, maxSerializedBytes: LIMITS.maxSerializedBytes, maxEdges: LIMITS.maxEdges };
-    const report = { ...(options.report && typeof options.report === "object" ? options.report : {}), analyzer: "skylense-static-v2", limits, inputEntries: entries.length, acceptedFiles: 0, analyzedFiles: 0, metadataOnlyFiles: 0, textBytes: 0, truncatedFiles: 0, skipped: Array.isArray(options.report?.skipped) ? options.report.skipped.slice(0, 1000) : [], warnings: Array.isArray(options.report?.warnings) ? options.report.warnings.slice(0, 1000) : [], unresolved: [], capabilities: { hierarchy: "Filesystem and source declaration boundaries for accepted paths; Python lexical class/function nesting", symbols: "Lexical Python and JavaScript/TypeScript declarations; HTML/Markdown headings", relationships: "Included import/link/resource references and conservatively resolved Python bare-call candidates", execution: false, aiInference: false, unsupported: "Other text is previewed; binary/PDF/image/archive contents are metadata only. Literal JS dynamic imports and re-exports are supported. Computed targets, TypeScript path aliases, member dispatch, notebook cells and arbitrary-language call graphs are not resolved. Python bare calls may abstain for shadowing, ambiguity or missing sources." } };
+    const complete = options.mode === "complete";
+    const limits = { ...LIMITS, maxFiles: bound(options.maxFiles, LIMITS.maxFiles, 100000), maxFileBytes: bound(options.maxFileBytes, LIMITS.maxFileBytes, LIMITS.maxFileBytes), maxTotalBytes: bound(options.maxTotalBytes, LIMITS.maxTotalBytes, LIMITS.maxTotalBytes) };
+    if (complete) Object.assign(limits, { maxFiles: 100000, maxFileBytes: 64 * 1024 * 1024, maxTotalBytes: 256 * 1024 * 1024, maxEntities: 500000, maxSymbolsPerFile: Number.MAX_SAFE_INTEGER, maxSymbolsTotal: Number.MAX_SAFE_INTEGER, maxDocumentSymbolsPerFile: Number.MAX_SAFE_INTEGER, maxDocumentSymbolsTotal: Number.MAX_SAFE_INTEGER, maxDocumentNavigation: Number.MAX_SAFE_INTEGER, maxEdges: 500000, maxEvidenceBytes: 128 * 1024 * 1024, maxSerializedBytes: 128 * 1024 * 1024 });
+    const resourceFailure = message => { throw Object.assign(new Error(message + " Complete indexing stopped; choose a narrower source or explicitly request preview mode."), { code: "RESOURCE_LIMIT" }); };
+
+    const report = { ...(options.report && typeof options.report === "object" ? options.report : {}), analyzer: options.report?.syntax?.engine === "tree-sitter" ? "skylense-syntax-v1" : "skylense-static-v2", mode: complete ? "complete" : "preview", limits, inputEntries: entries.length, acceptedFiles: 0, analyzedFiles: 0, metadataOnlyFiles: 0, textBytes: 0, truncatedFiles: 0, skipped: Array.isArray(options.report?.skipped) ? options.report.skipped.slice(0, 1000) : [], warnings: Array.isArray(options.report?.warnings) ? options.report.warnings.slice(0, 1000) : [], unresolved: [], capabilities: { hierarchy: "Filesystem and source declaration boundaries for accepted paths; syntax nesting when a supported parser is available", symbols: "Supported syntax-tree declarations, lexical fallbacks and authored document headings; parser coverage is reported per file", relationships: "Included static import/link/resource references, declared external dependencies, and conservatively bound call sites", execution: false, aiInference: false, unsupported: "Other text is previewed; binary/PDF/image/archive contents are metadata only. Literal JS dynamic imports and re-exports are supported. Computed targets, dynamic member dispatch, notebook cells and arbitrary-language runtime call graphs are not resolved; configured path resolution depends on included manifests. Python bare calls may abstain for shadowing, ambiguity or missing sources." } };
     let symbolsUsed = 0, evidenceBytes = 0, evidenceTruncated = 0;
     const sourceLines = new Map();
     function evidence(file, text, start, end, url) {
       if (!sourceLines.has(file)) sourceLines.set(file, indexLines(text));
       const item = lineEvidence(file, sourceLines.get(file), start, end, url), remaining = Math.max(0, limits.maxEvidenceBytes - evidenceBytes);
+      if (complete && remaining < Math.min(2048, encoder.encode(item.excerpt).length)) resourceFailure("Source evidence safety ceiling reached.");
       const clipped = truncateBytes(item.excerpt, Math.min(2048, remaining)); evidenceBytes += clipped.bytes;
       if (clipped.truncated) { item.excerpt = clipped.text; item.excerptTruncated = true; evidenceTruncated++; }
       return item;
@@ -260,11 +282,11 @@
     for (const entry of entries) {
       if (!entry || typeof entry !== "object") { noteSkip("", "Invalid entry"); continue; }
       const path = normalizePath(entry.path);
-      if (!path) { noteSkip(String(entry.path || "").slice(0, 300), "Invalid or excessively deep relative path"); continue; }
+      if (!path) { if (complete) resourceFailure("Invalid or unsupported source path."); noteSkip(String(entry.path || "").slice(0, 300), "Invalid or excessively deep relative path"); continue; }
       if (isExcludedPath(path)) { noteSkip(path, "Excluded generated, dependency, version-control or sensitive path"); continue; }
       prepared.push({ ...entry, path, ...(entry.kind === "directory" || /[\\/]$/.test(entry.path) ? { kind: "directory" } : {}) });
     }
-    prepared.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+    prepared.sort(comparePaths);
     function ensureDirectories(path, itself = false) {
       const parts = path.split("/"); if (!itself) parts.pop();
       let parent = rootId, current = "";
@@ -275,9 +297,9 @@
     for (const entry of prepared) {
       const directory = entry.status === "directory" || entry.kind === "directory" || /[\\/]$/.test(entry.path);
       if (accepted.has(entry.path)) { noteSkip(entry.path, "Duplicate path; first descriptor retained"); continue; }
-      if (!directory && fileCount >= limits.maxFiles) { noteSkip(entry.path, "File count limit"); continue; }
+      if (!directory && fileCount >= limits.maxFiles) { if (complete) resourceFailure("Source file safety ceiling reached."); noteSkip(entry.path, "File count limit"); continue; }
       const missingDirectories = entry.path.split("/").slice(0, directory ? undefined : -1).reduce((state, part) => { state.path = state.path ? state.path + "/" + part : part; if (!directoryIds.has(state.path)) state.count++; return state; }, { path: "", count: 0 }).count;
-      if (hierarchy.length + nodes.length + missingDirectories + (directory ? 0 : 1) > limits.maxEntities) { noteSkip(entry.path, "Hierarchy entity limit"); continue; }
+      if (hierarchy.length + nodes.length + missingDirectories + (directory ? 0 : 1) > limits.maxEntities) { if (complete) resourceFailure("Graph entity safety ceiling reached."); noteSkip(entry.path, "Hierarchy entity limit"); continue; }
       const parentId = ensureDirectories(entry.path, directory);
       if (directory) { accepted.set(entry.path, { entry, directory: true }); continue; }
       fileCount++; const info = classifyPath(entry.path), nodeId = id("file", entry.path), url = safeUrl(entry.url);
@@ -286,13 +308,20 @@
       if (typeof entry.text === "string" && !entry.text.includes("\0") && (info.text || info.kind === "file") && !["binary", "unreadable", "symlink", "metadata-only", "excluded"].includes(entry.status)) {
         const remaining = limits.maxTotalBytes - report.textBytes;
         if (remaining > 0) {
+          if (complete && (encoder.encode(entry.text).length > limits.maxFileBytes || encoder.encode(entry.text).length > remaining)) resourceFailure("Source content safety ceiling reached.");
           const clipped = truncateBytes(entry.text, Math.min(limits.maxFileBytes, remaining)); text = clipped.text; report.textBytes += clipped.bytes;
           const truncated = clipped.truncated || entry.status === "truncated" || entry.truncated === true; if (truncated) report.truncatedFiles++;
-          const docId = id("doc", entry.path); documents.push({ id: docId, title: entry.path, path: entry.path, content: text, status: truncated ? "truncated" : "source", ...(url ? { url } : {}) }); node.documentIds.push(docId);
+          const preview = truncateBytes(text, 256 * 1024);
+          const docId = id("doc", entry.path); documents.push({ id: docId, title: entry.path, path: entry.path, content: preview.text, status: truncated || preview.truncated ? "truncated" : "source", previewTruncated: preview.truncated, sourceBytes: clipped.bytes, ...(url ? { url } : {}) }); node.documentIds.push(docId);
           const lines = indexLines(text); sourceLines.set(entry.path, lines);
           node.evidence = [evidence(entry.path, text, 1, Math.min(8, lines.length), url)]; node.evidenceStatus = "source-text";
-          node.summary = `${info.language || "Text"} · ${lines.length} preview lines${truncated ? " · preview truncated" : ""}`;
-          if (["python", "javascript", "typescript"].includes(info.language)) {
+          node.previewTruncated = preview.truncated;
+          node.summary = `${info.language || "Text"} · ${lines.length} source lines${preview.truncated || truncated ? " · preview truncated" : ""}`;
+          if (entry.syntaxFacts) {
+            facts = entry.syntaxFacts;
+            if (!Array.isArray(facts.symbols) || !Array.isArray(facts.imports)) throw new Error("Invalid prepared syntax facts for " + entry.path);
+          }
+          else if (["python", "javascript", "typescript"].includes(info.language)) {
             facts = codeFacts(text, info.language);
             if (info.language === "python" && root.SkylensePythonStructure) {
               facts.structure = root.SkylensePythonStructure.analyze(text);
@@ -300,53 +329,99 @@
               if (facts.structure.truncated) report.warnings.push(`${entry.path}: Python structure extraction reached its bounded budget.`);
             }
           }
+          else if (info.language === "julia" && root.SkylenseJuliaStructure) {
+            facts = root.SkylenseJuliaStructure.analyze(text);
+            if (facts.truncated) report.warnings.push(`${entry.path}: Julia structure extraction reached its bounded budget.`);
+          }
           else if (["html", "markdown"].includes(info.language)) facts = documentFacts(text, info.language, lines);
-          node.functions = facts.symbols.slice(0, Math.min(limits.maxSymbolsPerFile, limits.maxSymbolsTotal - symbolsUsed)).map((symbol) => ({ name: symbol.name, qualifiedName: symbol.qualifiedName || symbol.name, kind: symbol.kind, description: `Lexical ${symbol.kind} declaration at line ${symbol.line}; no runtime or type-checking claim.`, inputs: [], outputs: [], evidenceStatus: "lexical-candidate", evidence: [evidence(entry.path, text, symbol.line, symbol.endLine, url)] }));
-          symbolsUsed += node.functions.length;
-          if (facts.symbols.length > node.functions.length) report.warnings.push(`${entry.path}: symbol preview limited by per-file (${limits.maxSymbolsPerFile}) or collection (${limits.maxSymbolsTotal}) budget.`);
+          if (complete && (facts.truncated || facts.structure?.truncated)) resourceFailure(entry.path + ": syntax extraction reached its safety ceiling.");
+          const parser = entry.syntaxFacts?.parser || (["python", "javascript", "typescript"].includes(info.language) || (info.language === "julia" && root.SkylenseJuliaStructure) ? info.language + "-lexical" : ["html", "markdown"].includes(info.language) ? "document-structure" : "text-preview");
+          const status = entry.syntaxFacts?.diagnostics?.length || truncated ? "partial" : entry.syntaxFacts?.status || (parser === "text-preview" ? "preview-only" : parser === "document-structure" ? "document-structure" : "analyzed");
+          node.analysis = { parser, status, diagnostics: entry.syntaxFacts?.diagnostics || [], unresolvedCount: 0 };
           report.analyzedFiles++;
-        } else { noteSkip(entry.path, "Text budget exhausted; metadata retained"); }
+        } else { if (complete) resourceFailure("Source content safety ceiling reached."); noteSkip(entry.path, "Text budget exhausted; metadata retained"); }
       }
-      if (text === null) { report.metadataOnlyFiles++; node.summary = `${info.kind} · ${entry.status || "metadata only"}${node.size !== null ? " · " + node.size + " bytes" : ""}`; }
+      if (text === null) { report.metadataOnlyFiles++; node.summary = `${info.kind} · ${entry.status || "metadata only"}${node.size !== null ? " · " + node.size + " bytes" : ""}`; node.analysis = { parser: "metadata-only", status: "metadata-only", diagnostics: [], unresolvedCount: 0 }; }
       nodes.push(node); accepted.set(entry.path, { entry, node, text, facts });
     }
     const fileMap = new Map([...accepted].filter(([, value]) => value.node));
-    // Keep file identities stable. Add source-backed symbol nodes only after
-    // inventory is complete, so a large source file cannot displace other files.
-    let navigableSymbols = 0, symbolContainers = 0, navigationCandidates = 0;
+    // Allocate declaration previews fairly across files. Documentation has its
+    // own small budget and cannot displace source declarations.
+    const codeFiles = [...fileMap].filter(([, v]) => !["html", "markdown"].includes(v.node.language));
+    const documentFiles = [...fileMap].filter(([, v]) => ["html", "markdown"].includes(v.node.language));
+    let documentSymbols = 0;
+    for (const [collection, perFile, total] of [[codeFiles, limits.maxSymbolsPerFile, limits.maxSymbolsTotal], [documentFiles, limits.maxDocumentSymbolsPerFile, limits.maxDocumentSymbolsTotal]]) {
+      let used = 0;
+      const rounds = Math.min(perFile, collection.reduce((n, [, value]) => Math.max(n, value.facts.symbols.length), 0));
+      for (let index = 0; index < rounds && used < total; index++) for (const [path, value] of collection) {
+        const symbol = value.facts.symbols[index]; if (!symbol || used >= total) continue;
+        value.node.functions.push({ name: symbol.name, qualifiedName: symbol.qualifiedName || symbol.name, kind: symbol.kind, description: `${value.facts.parser?.engine === "tree-sitter" ? "Syntax-tree" : "Lexical"} ${symbol.kind} declaration at line ${symbol.line}; no runtime or type-checking claim.`, inputs: [], outputs: [], evidenceStatus: "lexical-candidate", evidence: [evidence(path, value.text, symbol.line, symbol.endLine, safeUrl(value.entry.url))] }); used++;
+      }
+      if (collection === documentFiles) documentSymbols = used;
+      symbolsUsed += used;
+      for (const [path, value] of collection) if (value.facts.symbols.length > value.node.functions.length) report.warnings.push(`${path}: ${collection === documentFiles ? "document section" : "symbol"} preview limited by per-file (${perFile}) or collection (${total}) budget.`);
+    }
+    // Source files are kept even when navigation nodes reach the entity budget.
+    // Round-robin expansion gives each source a first declaration before any
+    // source receives its second. Parents precede children in lexical order.
+    let navigableSymbols = 0, symbolContainers = 0, navigationCandidates = 0, documentNavigation = 0;
     for (const [path, value] of fileMap) {
-      value.node.sourceRole = "file";
-      value.symbolNodes = new Map();
-      if (options.kind === "webpage") continue;
-      navigationCandidates += value.node.functions.length;
-      if (!value.node.functions.length || value.node.level >= 62 || nodes.length + hierarchy.length + 2 > limits.maxEntities) continue;
-      const fileId = id("source", path), parentId = value.node.parentId, level = value.node.level;
-      hierarchy.push({ id: fileId, label: value.node.label, kind: "container", sourceRole: "file-container", path, parentId, group: rootId, level, description: "Source file boundary · declarations are contained here; containment does not imply a call.", documentIds: [...value.node.documentIds], evidence: value.node.evidence });
-      symbolContainers++;
-      value.node.parentId = fileId; value.node.level++; value.node.label = "Source · " + value.node.label;
-      const boundaries = new Map();
-      const wantedParents = new Set(value.facts.symbols.slice(0, value.node.functions.length).map(symbol => symbol.parent).filter(parent => Number.isInteger(parent)));
-      for (let index = 0; index < value.node.functions.length; index++) {
+      value.node.sourceRole = "file"; value.symbolNodes = new Map(); value.boundaries = new Map();
+      value.wantedParents = new Set(value.facts.symbols.slice(0, value.node.functions.length).map(symbol => symbol.parent).filter(parent => Number.isInteger(parent)));
+      if (options.kind !== "webpage") navigationCandidates += value.node.functions.length;
+    }
+    if (options.kind !== "webpage") for (const collection of [codeFiles, documentFiles]) {
+      const rounds = collection.reduce((n, [, value]) => Math.max(n, value.node.functions.length), 0);
+      for (let index = 0; index < rounds; index++) for (const [path, value] of collection) {
         const symbol = value.facts.symbols[index], preview = value.node.functions[index];
-        const parent = boundaries.get(symbol.parent) || { id: fileId, level };
-        if (parent.level >= 63 || nodes.length + hierarchy.length >= limits.maxEntities) break;
-        const symbolId = id("symbol", path + "\0" + (symbol.qualifiedName || symbol.name) + "\0" + symbol.line);
+        if (!preview || (collection === documentFiles && documentNavigation >= limits.maxDocumentNavigation)) continue;
+        if (!value.fileBoundary) {
+          if (value.node.level >= 62 || nodes.length + hierarchy.length + 2 > limits.maxEntities) { if (complete) resourceFailure("Source navigation depth or entity ceiling reached."); continue; }
+          const fileId = id("source", path), parentId = value.node.parentId, level = value.node.level;
+          value.fileBoundary = { id: fileId, level };
+          hierarchy.push({ id: fileId, label: value.node.label, kind: "container", sourceRole: "file-container", path, parentId, group: rootId, level, description: "Source file boundary · declarations are contained here; containment does not imply a call.", documentIds: [...value.node.documentIds], evidence: value.node.evidence }); symbolContainers++;
+          value.node.parentId = fileId; value.node.level++; value.node.label = "Source · " + value.node.label;
+        }
+        if (Number.isInteger(symbol.parent) && !value.boundaries.has(symbol.parent)) continue;
+        const parent = value.boundaries.get(symbol.parent) || value.fileBoundary;
+        if (parent.level >= 63 || nodes.length + hierarchy.length >= limits.maxEntities) { if (complete) resourceFailure("Source navigation depth or entity ceiling reached."); continue; }
+        const symbolId = id("symbol", path + "\0" + (symbol.qualifiedName || symbol.name) + "\0" + symbol.line + "\0" + (symbol.column || 0) + "\0" + index);
         let symbolParent = parent.id, symbolLevel = parent.level + 1;
-        if (wantedParents.has(index) && parent.level < 62 && nodes.length + hierarchy.length + 2 <= limits.maxEntities) {
+        if (value.wantedParents.has(index) && parent.level < 62 && nodes.length + hierarchy.length + 2 <= limits.maxEntities) {
           const boundary = { id: id("scope", symbolId), label: symbol.name, kind: "container", sourceRole: "symbol-container", path, qualifiedName: preview.qualifiedName, parentId: parent.id, group: rootId, level: symbolLevel, description: `Lexical ${symbol.kind} scope · ${preview.qualifiedName}`, documentIds: [...value.node.documentIds], evidence: preview.evidence };
-          hierarchy.push(boundary); boundaries.set(index, boundary); symbolContainers++; symbolParent = boundary.id; symbolLevel++;
+          hierarchy.push(boundary); value.boundaries.set(index, boundary); symbolContainers++; symbolParent = boundary.id; symbolLevel++;
         }
         const bodyEnd = Math.max(symbol.endLine, Math.min(symbol.bodyEndLine || symbol.endLine, symbol.line + 31));
-        nodes.push({ id: symbolId, label: symbol.name, qualifiedName: preview.qualifiedName, path, kind: symbol.kind === "section" ? "document" : ["class", "function", "interface"].includes(symbol.kind) ? symbol.kind : "schema", sourceRole: "symbol", parentId: symbolParent, group: rootId, level: symbolLevel, summary: `${preview.qualifiedName} · ${symbol.kind} · lines ${symbol.line}–${symbol.bodyEndLine || symbol.endLine}. Static source declaration; not a runtime trace.`, functions: [], inputs: [], outputs: [], documentIds: [...value.node.documentIds], evidenceStatus: "source-text", evidence: [evidence(path, value.text, symbol.line, bodyEnd, safeUrl(value.entry.url))], sourceSpan: { lineStart: symbol.line, lineEnd: symbol.bodyEndLine || symbol.endLine }, ...(value.node.url ? { url: value.node.url } : {}) });
+        nodes.push({ id: symbolId, label: symbol.name, qualifiedName: preview.qualifiedName, path, kind: symbol.kind === "section" ? "document" : symbol.kind === "struct" ? "class" : ["class", "function", "interface", "module"].includes(symbol.kind) ? symbol.kind : "schema", sourceRole: "symbol", parentId: symbolParent, group: rootId, level: symbolLevel, summary: `${preview.qualifiedName} · ${symbol.kind} · lines ${symbol.line}–${symbol.bodyEndLine || symbol.endLine}. Static source declaration; not a runtime trace.`, functions: [], inputs: [], outputs: [], documentIds: [...value.node.documentIds], evidenceStatus: "source-text", evidence: [evidence(path, value.text, symbol.line, bodyEnd, safeUrl(value.entry.url))], sourceSpan: { lineStart: symbol.line, lineEnd: symbol.bodyEndLine || symbol.endLine }, ...(value.node.url ? { url: value.node.url } : {}) });
         preview.nodeId = symbolId; value.symbolNodes.set(index, symbolId); navigableSymbols++;
+        if (collection === documentFiles) documentNavigation++;
       }
     }
-    report.navigableSymbols = navigableSymbols; report.symbolContainers = symbolContainers;
-    if (navigableSymbols < navigationCandidates) report.warnings.push("Some symbol navigation nodes were limited by the hierarchy entity or depth budget; declaration previews are retained.");
+    report.navigableSymbols = navigableSymbols; report.symbolContainers = symbolContainers; report.documentSymbols = documentSymbols; report.documentNavigation = documentNavigation;
+    report.selection = "source-first; declarations allocated across files before separately bounded document sections";
+    if (navigableSymbols < navigationCandidates) report.warnings.push("Some symbol navigation nodes were limited by the hierarchy entity, document or depth budget; declaration previews are retained.");
     const urlMap = new Map(); for (const [path, value] of fileMap) { const url = safeUrl(value.entry.url); if (url) { const u = new URL(url); u.hash = ""; urlMap.set(u.href, path); } }
+    const juliaModules = new Map();
+    for (const [path, value] of fileMap) if (value.node.language === "julia") for (const symbol of value.facts.symbols) {
+      if (symbol.kind !== "module" || Number.isInteger(symbol.parent)) continue;
+      const found = juliaModules.get(symbol.name) || []; found.push(path); juliaModules.set(symbol.name, found);
+    }
     function choose(candidates) { const matches = [...new Set(candidates.filter((path) => path && fileMap.has(path)))]; return matches.length === 1 ? { targets: matches } : { targets: [], reason: matches.length > 1 ? "Ambiguous local resolution" : "External, unavailable, excluded or unresolved target" }; }
+    const extendedResolver = root.SkylenseSourceResolver?.create(fileMap, { joinRelative, choose });
     function resolve(path, fact, entry) {
       const dir = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "", spec = fact.specifier;
+      const extended = extendedResolver?.(path, fact, entry); if (extended) return extended;
+      if (fact.form === "julia-include") {
+        if (/^(?:[a-z]:|\/|[a-z][\w+.-]*:\/\/)/i.test(spec)) return { targets: [], reason: "Julia include is outside the selected relative source tree" };
+        return choose([joinRelative(dir, spec)]);
+      }
+      if (fact.form === "julia-module") {
+        if (/^[A-Za-z_]\w*$/.test(spec)) {
+          const candidates = juliaModules.get(spec) || [];
+          if (candidates.length) return choose(candidates);
+        }
+        return { targets: [], reason: "No unique included top-level Julia module declaration; package and relative-module bindings are not resolved" };
+      }
       if (fact.form.startsWith("python")) {
         let module = spec, prefix = "";
         if (module.startsWith(".")) { const dots = module.match(/^\.+/)[0].length; const parts = dir ? dir.split("/") : []; if (dots > parts.length + (fileMap.has("__init__.py") ? 1 : 0)) return { targets: [], reason: "Relative import escapes source root" }; prefix = parts.slice(0, parts.length - dots + 1).join("/"); module = module.slice(dots); }
@@ -373,41 +448,94 @@
       if (fileMap.has(joined)) return { targets: [joined] };
       return choose([...suffixes.map((ext) => joined + ext), ...suffixes.map((ext) => joined + "/index" + ext)]);
     }
+    const externalNodes = new Map(); let externalContainer = null, externalReferenceEdges = 0;
+    function externalTarget(value, reference) {
+      const name = String(reference.name || reference.specifier || "External reference");
+      const key = (value.node.language || "text") + "\0" + (reference.kind || "package") + "\0" + name;
+      if (externalNodes.has(key)) return externalNodes.get(key);
+      if (nodes.length + hierarchy.length + (externalContainer ? 1 : 2) > limits.maxEntities) {
+        if (complete) resourceFailure("External reference entity ceiling reached."); return null;
+      }
+      if (!externalContainer) {
+        externalContainer = id("external-scope", ".");
+        hierarchy.push({ id: externalContainer, label: "External dependencies", kind: "container", group: rootId, parentId: rootId, level: 2, description: "Declared external references; dependency contents are not part of the indexed source." });
+      }
+      const target = id("external", key);
+      nodes.push({ id: target, label: name, path: "external:" + key.replace(/\0/g, ":"), kind: "external", sourceRole: "external-reference", parentId: externalContainer, group: rootId, level: 3, language: value.node.language, status: "unfetched-reference", evidenceStatus: "unfetched-reference", summary: "Declared external dependency reference; package contents were not fetched or indexed, and runtime availability is not verified.", functions: [], inputs: [], outputs: [], evidence: [], documentIds: [], externalReference: { name, kind: reference.kind || "package", specifier: String(reference.specifier || name) } });
+      externalNodes.set(key, target); return target;
+    }
     let edgeCap = false;
     for (const [path, value] of fileMap) for (const fact of value.facts.imports) {
       const resolution = resolve(path, fact, value.entry); if (resolution.ignored) continue;
-      if (!resolution.targets.length) { if (report.unresolved.length < 1000) report.unresolved.push({ file: path, line: fact.line, specifier: fact.specifier.slice(0, 256), reason: resolution.reason }); continue; }
+      if (!resolution.targets.length && resolution.external) {
+        const target = externalTarget(value, resolution.external);
+        if (!target || edges.length >= limits.maxEdges) { if (complete) resourceFailure("External relationship safety ceiling reached."); edgeCap = true; continue; }
+        edges.push({ id: id("edge", path + "\0external\0" + fact.line + "\0" + fact.form + "\0" + target + "\0" + edges.length), source: value.node.id, target, type: "imports", label: fact.specifier.slice(0, 240), evidenceStatus: "source-text", description: "The source declares this external dependency reference. Its contents and runtime binding were not inspected; this does not count as a resolved local-code relationship.", evidence: [evidence(path, value.text, fact.line, fact.endLine, safeUrl(value.entry.url))], externalReference: true });
+        externalReferenceEdges++; continue;
+      }
+      if (!resolution.targets.length) { if (value.node.analysis) value.node.analysis.unresolvedCount++; if (report.unresolved.length < (complete ? Number.MAX_SAFE_INTEGER : 1000)) report.unresolved.push({ file: path, line: fact.line, specifier: fact.specifier.slice(0, 256), reason: resolution.reason }); continue; }
       for (const target of resolution.targets) {
-        if (edges.length >= limits.maxEdges) { edgeCap = true; break; }
+        if (edges.length >= limits.maxEdges) { if (complete) resourceFailure("Relationship safety ceiling reached."); edgeCap = true; break; }
         const type = ["html-script", "html-stylesheet"].includes(fact.form) ? "loads" : fact.form.endsWith("link") ? "links" : "imports";
-        edges.push({ id: id("edge", path + "\0" + fact.line + "\0" + fact.form + "\0" + fact.specifier + "\0" + target + "\0" + edges.length), source: value.node.id, target: fileMap.get(target).node.id, type, label: fact.specifier.slice(0, 240), evidenceStatus: "lexical-candidate", description: `${fact.form}: literal source reference resolves to an included local file. This is a lexical dependency candidate, not a verified execution, call or runtime flow.`, evidence: [evidence(path, value.text, fact.line, fact.endLine, safeUrl(value.entry.url))] });
+        edges.push({ id: id("edge", path + "\0" + fact.line + "\0" + fact.form + "\0" + fact.specifier + "\0" + target + "\0" + edges.length), source: value.node.id, target: fileMap.get(target).node.id, type, label: fact.specifier.slice(0, 240), evidenceStatus: "lexical-candidate", description: `${fact.form}: static source reference resolves to an included local file. This is a lexical dependency candidate, not a verified execution, call or runtime flow.`, evidence: [evidence(path, value.text, fact.line, fact.endLine, safeUrl(value.entry.url))] });
       }
     }
-    let callCandidates = 0, unresolvedCalls = 0;
-    for (const [path, value] of fileMap) for (const call of value.facts.structure?.calls || []) {
+    const nodesById = new Map(nodes.map(node => [node.id, node]));
+    let callCandidates = 0, unresolvedCalls = 0, semanticCalls = 0, dispatchCandidates = 0, dispatchCallsites = 0;
+    const sourceTargets = new Map();
+    for (const [path, value] of fileMap) for (let index = 0; index < value.facts.symbols.length; index++) { const symbol = value.facts.symbols[index], key = path + "\0" + symbol.line + "\0" + symbol.name, list = sourceTargets.get(key) || []; list.push({ value, index, symbol }); sourceTargets.set(key, list); }
+    function sourceTarget(reference) {
+      const candidates = (sourceTargets.get(reference.path + "\0" + reference.line + "\0" + reference.name) || []).filter(item => (reference.column === undefined || item.symbol.column === reference.column) && (reference.qualifiedName === undefined || item.symbol.qualifiedName === reference.qualifiedName));
+      return candidates.length === 1 ? candidates[0].value.symbolNodes.get(candidates[0].index) : undefined;
+    }
+    let structuralRelationships = 0, unresolvedRelationships = 0;
+    for (const [path, value] of fileMap) for (const [relationshipIndex, relationship] of (value.facts.relationships || []).entries()) {
+      if (!["inherits", "implements"].includes(relationship.form)) continue;
+      const from = value.symbolNodes.get(relationship.owner), target = relationship.resolution?.kind === "source" ? sourceTarget(relationship.resolution) : undefined;
+      if (!from || !target) {
+        unresolvedRelationships++;
+        if (value.node.analysis) value.node.analysis.unresolvedCount++;
+        if (report.unresolved.length < (complete ? Number.MAX_SAFE_INTEGER : 1000)) report.unresolved.push({ file: path, line: relationship.line, specifier: relationship.name, kind: relationship.form, reason: relationship.resolution?.reason || "Structural target is outside the unique included declaration set or navigation budget" });
+        continue;
+      }
+      if (edges.length >= limits.maxEdges) { if (complete) resourceFailure("Structural relationship safety ceiling reached."); edgeCap = true; break; }
+      edges.push({ id: id("edge", path + "\0heritage\0" + relationship.line + "\0" + (relationship.column || 0) + "\0" + relationship.form + "\0" + target + "\0" + relationshipIndex), source: from, target, type: relationship.form, label: (relationship.form === "implements" ? "implements " : "extends ") + relationship.name, evidenceStatus: "static-resolved", resolution: { engine: relationship.resolution.engine || "typescript-symbols", kind: "source" }, description: "A declared class or interface heritage reference resolves through the project symbol table to this unique included source definition. This is a structural relationship, not an execution sequence or proof that the implementation satisfies the contract.", evidence: [evidence(path, value.text, relationship.line, relationship.endLine, safeUrl(value.entry.url))] });
+      structuralRelationships++;
+    }
+    report.structuralRelationships = structuralRelationships; report.unresolvedRelationships = unresolvedRelationships;
+    for (const [path, value] of fileMap) for (const [callIndex, call] of (value.facts.structure?.calls || []).entries()) {
       const from = call.owner === null ? value.node.id : value.symbolNodes.get(call.owner);
-      let target;
-      if (call.resolution.kind === "local") target = value.symbolNodes.get(call.resolution.symbol);
+      const dispatch = call.resolution.kind === "source-candidates", semantic = call.resolution.kind === "source";
+      let targets = [];
+      if (semantic) targets = [sourceTarget(call.resolution)];
+      else if (dispatch) targets = (call.resolution.targets || []).map(sourceTarget);
+      else if (call.resolution.kind === "local") targets = [value.symbolNodes.get(call.resolution.symbol)];
       else if (call.resolution.kind === "import") {
         const reference = call.resolution;
         const resolved = resolve(path, { form: "python-from", specifier: reference.module, names: [] }, value.entry);
         if (resolved.targets.length === 1) {
           const other = fileMap.get(resolved.targets[0]);
           const index = other.facts.structure?.callableExports?.[reference.name];
-          if (Number.isInteger(index)) target = other.symbolNodes.get(index);
+          if (Number.isInteger(index)) targets = [other.symbolNodes.get(index)];
         }
       }
-      if (!from || !target) {
+      targets = [...new Set(targets.filter(Boolean))];
+      if (!from || !targets.length) {
         unresolvedCalls++;
-        if (report.unresolved.length < 1000) report.unresolved.push({ file: path, line: call.line, specifier: call.name, kind: "call", reason: call.resolution.reason || "Call target is outside the supported, unique included declaration set or navigation budget" });
+        if (report.unresolved.length < (complete ? Number.MAX_SAFE_INTEGER : 1000)) report.unresolved.push({ file: path, line: call.line, specifier: call.name, kind: "call", reason: call.resolution.reason || "Call target is outside the supported, unique included declaration set or navigation budget" });
         continue;
       }
-      if (edges.length >= limits.maxEdges) { edgeCap = true; break; }
-      const targetNode = nodes.find(node => node.id === target), type = targetNode?.kind === "class" ? "constructs" : "calls";
-      edges.push({ id: id("edge", path + "\0call\0" + call.line + "\0" + call.name + "\0" + edges.length), source: from, target, type, label: call.name + "()", evidenceStatus: "lexical-candidate", description: "A bare Python call expression resolves lexically to this unique included declaration. Decorators, rebinding and runtime behavior are not verified; this is not an observed execution or ordering claim.", evidence: [evidence(path, value.text, call.line, call.endLine, safeUrl(value.entry.url))] });
-      callCandidates++;
+      const callsiteId = id("callsite", path + "\0" + call.line + "\0" + (call.column || 0) + "\0" + call.name + "\0" + callIndex);
+      if (dispatch) dispatchCallsites++;
+      for (const target of targets) {
+        if (edges.length >= limits.maxEdges) { if (complete) resourceFailure("Relationship safety ceiling reached."); edgeCap = true; break; }
+        const targetNode = nodesById.get(target), type = dispatch ? "call-candidate" : targetNode?.kind === "class" ? "constructs" : "calls";
+        edges.push({ id: id("edge", path + "\0call\0" + call.line + "\0" + (call.column || 0) + "\0" + call.name + "\0" + target + "\0" + edges.length), source: from, target, type, label: call.name + "()", callsiteId, ...(dispatch ? { dispatchCandidateCount: targets.length } : {}), evidenceStatus: dispatch ? "dispatch-candidate" : semantic ? "static-resolved" : "lexical-candidate", resolution: { engine: call.resolution.engine || (dispatch ? "julia-static-binding" : semantic ? "typescript-checker" : "lexical-binding"), kind: call.resolution.kind }, description: dispatch ? "A source call can refer to this included method through static module bindings. These edges form a candidate set; argument types and runtime multiple dispatch are not evaluated." : semantic ? "A static semantic binding resolves this call site to a unique included source declaration. Runtime dispatch and execution order are not observed." : "A source call expression resolves lexically to this unique included declaration. Decorators, rebinding and runtime behavior are not verified; this is not an observed execution or ordering claim.", evidence: [evidence(path, value.text, call.line, call.endLine, safeUrl(value.entry.url))] });
+        callCandidates++; if (semantic) semanticCalls++; if (dispatch) dispatchCandidates++;
+      }
     }
-    report.callCandidates = callCandidates; report.unresolvedCalls = unresolvedCalls;
+    report.externalReferences = externalNodes.size; report.externalReferenceEdges = externalReferenceEdges;
+    report.callCandidates = callCandidates; report.semanticCalls = semanticCalls; report.dispatchCandidates = dispatchCandidates; report.dispatchCallsites = dispatchCallsites; report.unresolvedCalls = unresolvedCalls;
     if (options.kind === "webpage") {
       let headingCount = 0, referenceCount = 0;
       for (const [path, value] of fileMap) {
@@ -417,7 +545,7 @@
         hierarchy.push({ id: pageId, label: value.node.label, path, kind: "container", group: rootId, parentId: value.node.parentId, level: value.node.level, description: "Collected page · source, authored sections and hyperlink references" });
         value.node.parentId = pageId; value.node.level++;
         for (const symbol of value.facts.symbols) {
-          if (headingCount >= 40 || nodes.length + hierarchy.length >= limits.maxEntities) break;
+          if (headingCount >= (complete ? limits.maxEntities : 40) || nodes.length + hierarchy.length >= limits.maxEntities) break;
           nodes.push({ id: id("section", path + "\0" + symbol.line + "\0" + symbol.name), label: symbol.name.slice(0, 180), path, kind: "module", group: rootId, parentId: pageId, level: value.node.level, summary: "Authored page section · source text, not an inferred component", evidenceStatus: "source-text", documentIds: [...value.node.documentIds], functions: [], inputs: [], outputs: [], evidence: [evidence(path, value.text, symbol.line, symbol.endLine, safeUrl(value.entry.url))] }); headingCount++;
         }
         const references = new Map();
@@ -430,7 +558,7 @@
           if (!targetUrl) continue;
           let target = references.get(targetUrl);
           if (!target) {
-            if (referenceCount >= 40 || nodes.length + hierarchy.length >= limits.maxEntities) break;
+            if (referenceCount >= (complete ? limits.maxEntities : 40) || nodes.length + hierarchy.length >= limits.maxEntities) break;
             target = id("reference", path + "\0" + targetUrl); references.set(targetUrl, target);
             const parsed = new URL(targetUrl);
             nodes.push({ id: target, label: (parsed.hostname + parsed.pathname).slice(0, 180), path: targetUrl, url: targetUrl, kind: "external", group: rootId, parentId: pageId, level: value.node.level, summary: `Unfetched ${resource ? "resource" : "hyperlink"} reference · target contents were not inspected`, status: "unfetched-reference", evidenceStatus: "unfetched-reference", documentIds: [...value.node.documentIds], functions: [], inputs: [], outputs: [], evidence: [evidence(path, value.text, fact.line, fact.endLine, safeUrl(value.entry.url))] }); referenceCount++;
@@ -439,17 +567,21 @@
         }
       }
       report.pageSections = headingCount; report.unfetchedReferences = referenceCount;
-      if (headingCount >= 40 || referenceCount >= 40) report.warnings.push("Webpage section and unfetched-reference previews are limited to 40 each.");
+      if (!complete && (headingCount >= 40 || referenceCount >= 40)) report.warnings.push("Webpage section and unfetched-reference previews are limited to 40 each.");
     }
     if (edgeCap) report.warnings.push(`Relationship output limited to ${limits.maxEdges}.`);
     if (!nodes.length) nodes.push({ id: id("file", "__skylense_empty_manifest__"), label: "No accepted files", kind: "document", parentId: rootId, group: rootId, level: 2, description: "The collection contained no accepted files. Check the ingestion report for limits, exclusions and transport failures.", evidenceStatus: "metadata-only", functions: [], inputs: [], outputs: [], evidence: [], documentIds: [] });
     report.evidenceBytes = evidenceBytes; report.truncatedExcerpts = evidenceTruncated;
     if (evidenceTruncated) report.warnings.push("Some excerpts are partial because of preview budgets; bounded source previews remain in documents.");
-    report.truncated = Boolean(evidenceTruncated || symbolsUsed >= limits.maxSymbolsTotal || options.report?.truncated || report.truncatedFiles || report.warnings.some(item => typeof item === "string" && /limited|budget/i.test(item)) || report.skipped.some(item => /limit|budget/i.test(item.reason || "")) || edgeCap);
+    report.truncated = Boolean(evidenceTruncated || (symbolsUsed - documentSymbols) >= limits.maxSymbolsTotal || options.report?.truncated || report.truncatedFiles || report.warnings.some(item => typeof item === "string" && /limited|budget/i.test(item)) || report.skipped.some(item => /limit|budget/i.test(item.reason || "")) || edgeCap);
+    report.previewTruncated = Boolean(evidenceTruncated || documents.some(doc => doc.previewTruncated));
+    report.indexCompleteness = { mode: complete ? "complete" : "preview", collection: complete && !options.report?.truncated ? "complete" : "partial", declarations: complete ? report.syntax?.errors?.length ? "partial-syntax-errors" : "complete-for-supported-parsers" : "bounded", relationships: "static-supported-references", runtime: false };
+    if (complete) report.truncated = Boolean(options.report?.truncated || report.truncatedFiles || edgeCap);
     report.acceptedFiles = fileCount; report.directories = directoryIds.size - 1; report.relationships = edges.length; report.symbols = symbolsUsed;
     const source = typeof options.source === "string" ? options.source : options.kind || "folder";
     const revision = typeof options.revision === "string" ? options.revision : hash([...fileMap].map(([path, file]) => path + "\0" + (file.text === null ? file.node.size : hash(file.text))).join("\n"));
-    const model = { meta: { id: "ingest_" + hash(source + "\0" + title), title, description: "Automatically collected source hierarchy and bounded static reference analysis.", version: 1, source, revision, sourceFolder: title, ...(safeUrl(options.url) ? { repository: safeUrl(options.url) } : {}), evidenceNote: "Automatically analyzed source text. Imports and hyperlinks are lexical candidates resolved against included files; Python bare-call edges are lexical candidates, not a complete call graph. No code was executed and no runtime flow is inferred. Excerpts may be partial when preview budgets are reached; bounded source previews are available in documents. Preview limits, skipped files and unresolved references are recorded in the ingestion report.", defaultScope: "system", defaultOpen: [], ingestion: report, count: { groups: 1, containers: hierarchy.length, nodes: nodes.length, edges: edges.length, functions: report.symbols, documents: documents.length } }, groups: [group], hierarchy, nodes, edges, flows: [], documents };
+    const model = { meta: { id: "ingest_" + hash(source + "\0" + title), title, description: "Automatically collected source hierarchy and bounded static reference analysis.", version: 1, source, revision, sourceFolder: title, ...(safeUrl(options.url) ? { repository: safeUrl(options.url) } : {}), evidenceNote: "Automatically analyzed source text. Imports and hyperlinks are lexical candidates resolved against included files; Call-site bindings report their static or lexical provenance and do not form a complete runtime call graph. No code was executed and no runtime flow is inferred. Excerpts may be partial when preview budgets are reached; bounded source previews are available in documents. Preview limits, skipped files and unresolved references are recorded in the ingestion report.", defaultScope: "system", defaultOpen: [], ingestion: report, count: { groups: 1, containers: hierarchy.length, nodes: nodes.length, edges: edges.length, functions: report.symbols, documents: documents.length } }, groups: [group], hierarchy, nodes, edges, flows: [], documents };
+    root.SkylenseSourceInsights?.enrich(model);
     // Escaped JSON can be much larger than UTF-8 source text (for example logs
     // containing backslashes or control characters). Cap the actual pretty JSON
     // used by CLI/browser exports, keeping every graph identity and relationship.
@@ -457,8 +589,8 @@
     const exportTarget = limits.maxSerializedBytes - 4096;
     let serializedBytes = outputSize();
     if (serializedBytes > exportTarget) {
-      report.truncated = true; report.serializedPreviewTruncated = true;
-      report.warnings.push("Document previews were shortened to keep the exported model below 14 MiB; node and relationship identities are unchanged.");
+      if (!complete) report.truncated = true; report.previewTruncated = true; report.serializedPreviewTruncated = true;
+      report.warnings.push("Document previews were shortened to keep the exported model below the model export limit; node and relationship identities are unchanged.");
       const trimmed = new Set();
       for (let pass = 0; pass < 20 && serializedBytes > exportTarget; pass++) {
         let changed = false;
@@ -470,6 +602,7 @@
           doc.status = "truncated"; doc.previewBytes = encoder.encode(doc.content).length;
           doc.originalPreviewBytes ??= before; trimmed.add(doc.id); changed = true;
         }
+        if (!changed && complete) resourceFailure("Graph metadata and source evidence exceed the model export ceiling.");
         if (!changed) {
           // Rare path-heavy manifests can spend their entire budget on evidence.
           // Preserve the line references and make omitted text explicit.
@@ -484,12 +617,12 @@
       }
       report.serializedTrimmedDocuments = trimmed.size;
       for (const node of nodes) if (node.documentIds?.some(docId => trimmed.has(docId))) node.previewTruncated = true;
-      if (outputSize() > exportTarget) throw new Error("Graph metadata exceeds the 14 MiB export limit. Reduce maxFiles or select a narrower source folder.");
+      if (outputSize() > exportTarget) resourceFailure("Graph metadata exceeds the " + (limits.maxSerializedBytes / 1024 / 1024) + " MiB export ceiling.");
     }
     report.serializedBytes = 0;
     report.serializedBytes = outputSize();
     report.serializedBytes = outputSize();
     return model;
   }
-  root.SkylenseIngest = Object.freeze({ build, classifyPath, isExcludedPath, limits: LIMITS });
+  root.SkylenseIngest = Object.freeze({ build, classifyPath, comparePaths, pathPriority, isExcludedPath, limits: LIMITS });
 })(typeof window !== "undefined" ? window : globalThis);

@@ -394,6 +394,45 @@
     if (!validPoint(start) || !validPoint(end))
       return blocked("invalid-endpoint");
     try {
+      // Large source maps have many unrelated rectangles. Before constructing
+      // their full visibility grid, try monotone routes with at most two bends.
+      // Only an obstacle-free, unoccupied Manhattan route qualifies, so this
+      // fast path cannot trade card clearance or lane separation for speed.
+      if (obstacles.length > 64 && options.maxGridPoints === undefined &&
+          options.maxIterations === undefined &&
+          (options.bendPenalty === undefined || (Number.isFinite(options.bendPenalty) && options.bendPenalty >= 0)) &&
+          (options.overlapPenalty === undefined || (Number.isFinite(options.overlapPenalty) && options.overlapPenalty >= 0)) &&
+          (options.laneGap === undefined || (Number.isFinite(options.laneGap) && options.laneGap > 0)) &&
+          (options.margin === undefined || (Number.isFinite(options.margin) && options.margin > 0))) {
+        const padding = options.padding ?? 12;
+        if (!Number.isFinite(padding) || padding < 0)
+          throw new TypeError("Padding must be finite and non-negative.");
+        const rectangles = obstacles.map((item) => rectangle(item, padding));
+        const lanes = occupiedLanes(options.usedSegments);
+        const direction = (a, b) => a.x === b.x
+          ? (b.y > a.y ? "down" : "up") : (b.x > a.x ? "right" : "left");
+        const candidates = [
+          [start, { x: end.x, y: start.y }, end],
+          [start, { x: start.x, y: end.y }, end],
+        ];
+        for (const fraction of [0.5, 0.25, 0.75]) {
+          const x = start.x + (end.x - start.x) * fraction;
+          const y = start.y + (end.y - start.y) * fraction;
+          candidates.push([start, { x, y: start.y }, { x, y: end.y }, end]);
+          candidates.push([start, { x: start.x, y }, { x: end.x, y }, end]);
+        }
+        for (const candidate of candidates) {
+          const points = simplify(candidate);
+          if (points.length < 2) continue;
+          if (options.startDirection && direction(points[0], points[1]) !== options.startDirection) continue;
+          if (options.endDirection && direction(points.at(-2), points.at(-1)) !== options.endDirection) continue;
+          let clear = true;
+          for (let i = 1; i < points.length && clear; i++)
+            clear = laneCost(points[i - 1], points[i], lanes, 1) === 0 &&
+              !rectangles.some((r) => intersectsInterior(points[i - 1], points[i], r));
+          if (clear) return resultFromPoints(points);
+        }
+      }
       let sceneOptions = options,
         grid = createGrid([start, end], obstacles, sceneOptions);
       let laneFallback = false;

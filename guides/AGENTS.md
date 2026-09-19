@@ -1,15 +1,15 @@
 # Skylense in your coding agent
 
-Install the [0.3.2 toolkit](https://github.com/danielchen26/skylense-app/releases/tag/v0.3.2) using Node.js 22+:
+Install the [0.4.0 toolkit](https://github.com/danielchen26/skylense-app/releases/tag/v0.4.0) using Node.js 22+:
 
 ```sh
-npm install -g /absolute/path/to/skylense-0.3.2.tgz
+npm install -g /absolute/path/to/skylense-0.4.0.tgz
 skylense config --root /path/to/project
 ```
 
 Copy the printed `command` and `args` into a client supporting **local stdio MCP**. Configuration wrappers differ by host. Skylense does not modify client settings or install plugins automatically. Omit `--root` to allow public URL analysis and bundled models without local source-folder access. `--model model.json` adds an authored model as `custom`.
 
-## Eight tools
+## Nine tools
 
 | Tool | Purpose |
 | --- | --- |
@@ -19,12 +19,15 @@ Copy the printed `command` and `args` into a client supporting **local stdio MCP
 | `skylense_search` | Search components, files, functions and relations |
 | `skylense_inspect` | Read hierarchy, direct neighbors, contracts and source evidence |
 | `skylense_traverse` | Follow bounded upstream/downstream relationships |
+| `skylense_path` | Find paths through ordered start/waypoint/end node IDs, with direction, edge-type filters and up to three alternatives |
 | `skylense_flow` | Read an authored scenario without inventing execution order |
 | `skylense_view` | Get a visual URL; custom/analyzed models start a token-protected local full workbench |
 
 Example prompt:
 
 > Analyze this project with Skylense. Read the coverage report, explain its hierarchy and resolved imports, and inspect the main entry points. Open the complete visual map. Distinguish source facts from interpretation.
+
+For relationship planning, call `skylense_path` with `repo` and ordered `stops` (2–8 node IDs). Optional `direction` is `downstream`, `upstream` or `both`; `types` selects exact relationship types, `maxHops` bounds the total route (1–48, default 24), and `limit` selects up to three alternatives. Every step refers to an existing edge and retains its original source/target and evidence. Reversed reading is explicitly marked. A failed segment or exhausted search budget is reported; it never implies a missing connection was invented or that the route is a runtime trace.
 
 After `skylense_analyze`, use `repo: "analyzed"` with query tools. The next analysis replaces that slot; export anything you want to keep. Built-in and configured custom models remain separate. MCP returns excerpts to the connected agent, whose provider policies apply.
 

@@ -11,6 +11,8 @@ For an immediate map, run `skylense open <source>`. For an agent-readable artifa
 
 For MCP, call `skylense_analyze`, then query `repo: "analyzed"` using search, inspect and traverse. Local paths require the server to have an explicit `--root`; do not broaden that root without user authorization. `skylense_model` exports the model if it fits the response bound. `skylense_view` gives the full visual workspace for the selected model.
 
+Use `skylense_path` with ordered `stops` to find existing graph paths through required intermediate nodes. Direction, relationship types, total hop limit and up to three alternatives are configurable. The CLI equivalent is `skylense path REPO START END --via MID1,MID2 --json`. Preserve original edge directions and reversed-step markers; report unreachable segments or search limits without inventing connections.
+
 Read the returned `meta.ingestion`/coverage report before describing completeness. Binary metadata, truncated files, unresolved imports and unfetched page references are not semantic evidence. Static imports are not measured calls or runtime traces.
 
 When the user needs a more meaningful architecture than the automatic file map, inspect the relevant source and enrich the JSON using the packaged `guides/MODEL.md` contract (also [available online](https://github.com/danielchen26/skylense-app/blob/main/guides/MODEL.md)). Preserve paths, exact excerpts and original relation direction; distinguish interpretation from confirmed source facts. Add responsibility descriptions, function contracts and guided scenarios only where supported. Do not remove coverage limits or create edges just to complete a diagram.

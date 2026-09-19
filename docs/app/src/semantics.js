@@ -25,13 +25,15 @@
   }
 
   const relations = Object.freeze({
+    "call-candidate": entry("call-candidate", "派发候选", "候选", "静态作用域可见的 Julia 方法候选集合；不会选择或证明实际运行时派发目标。", "fanout", "#92400E", "#FCD34D", "5 4 1 4"),
     loads: entry('loads', '页面资源', '加载', 'HTML 明确声明的脚本或样式表资源；不表示资源已经执行或目标已经读取。', 'grid', '#7C2D12', '#FED7AA', '8 3'),
     links: entry('links', '文档链接', '链接', '来源文本中明确写出的超链接或文档引用；不表示程序调用或目标页面已被读取。', 'search', '#155E75', '#A5F3FC', '6 3 1 3'),
     calls: entry('calls', '静态调用', '调用', '源码中可见的调用；动态分派仍以成员说明为准，不代表运行观测。', 'arrow', '#14532D', '#BBF7D0', '14 2'),
     types: entry('types', '类型契约', '类型', '类型注解或数据契约引用，从使用者指向结构定义。', 'code', '#5B21B6', '#DDD6FE', '8 3 2 3'),
     constructs: entry('constructs', '对象构建', '构建', '源码中实例化或建立对象的关系。', 'box', '#854D0E', '#FDE68A', '12 3 3 3'),
     imports: entry('imports', '源码导入', '导入', '静态 import 或延迟导入依赖；不额外推断调用发生。', 'external', '#0C4A6E', '#BAE6FD', '3 5'),
-    inherits: entry('inherits', '类继承', '继承', '派生类指向其基类；是类型结构，不是执行流程。', 'layers', '#115E59', '#99F6E4', '10 3 2 3 2 3'),
+    implements: entry("implements", "接口实现", "实现", "类型检查器解析的类到接口关系；接口声明必须存在于当前索引中，不表示运行时验证。", "check", "#3730A3", "#C7D2FE", "3 2 9 2"),
+    inherits: entry('inherits', '类型继承', '继承', '派生类或接口指向其基类或父接口；是类型结构，不是执行流程。', 'layers', '#115E59', '#99F6E4', '10 3 2 3 2 3'),
     inferred: entry('inferred', '架构推导', '推导', '根据接口、协议或跨进程边界整理的概念关系；请阅读每条成员的推导依据。', 'eye', '#9F1239', '#FDA4AF', '1 5'),
     flow: entry(
       "flow",

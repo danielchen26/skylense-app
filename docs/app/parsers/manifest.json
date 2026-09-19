@@ -1,0 +1,520 @@
+{
+  "runtime": {
+    "package": "web-tree-sitter",
+    "version": "0.25.10",
+    "name": "web-tree-sitter",
+    "publisherGitHead": "da6fe9beb4f7f67beb75914ca8e0d48ae48d6406",
+    "tarball": "https://registry.npmjs.org/web-tree-sitter/-/web-tree-sitter-0.25.10.tgz",
+    "integrity": "sha512-Y09sF44/13XvgVKgO2cNDw5rGk6s26MgoZPXLESvMXeefBf7i6/73eFurre0IsTW6E14Y0ArIzhUMmjoc7xyzA==",
+    "license": {
+      "spdx": "MIT",
+      "file": "licenses/web-tree-sitter.txt",
+      "source": "https://raw.githubusercontent.com/tree-sitter/tree-sitter/da6fe9beb4f7f67beb75914ca8e0d48ae48d6406/LICENSE"
+    }
+  },
+  "grammarPackages": [
+    {
+      "name": "tree-sitter-wasms",
+      "version": "0.1.13",
+      "publisherGitHead": "3e88dc9e36b4e8bf752ce53bea61e4b67282a2bb",
+      "tarball": "https://registry.npmjs.org/tree-sitter-wasms/-/tree-sitter-wasms-0.1.13.tgz",
+      "integrity": "sha512-wT+cR6DwaIz80/vho3AvSF0N4txuNx/5bcRKoXouOfClpxh/qqrF4URNLQXbbt8MaAxeksZcZd1j8gcGjc+QxQ=="
+    },
+    {
+      "name": "@lumis-sh/wasm-julia",
+      "version": "0.26.2",
+      "publisherGitHead": "e7257a3a399409f969efa6a79e7c6f82880547eb",
+      "tarball": "https://registry.npmjs.org/@lumis-sh/wasm-julia/-/wasm-julia-0.26.2.tgz",
+      "integrity": "sha512-VPHn2HcgmzqFRerwYwOoAq6Qj09urTmFMalIzwUzW/b1h4zENJfrd+zsdPStfmmj81DbPYIpAIHOQIwMyZUMSA=="
+    },
+    {
+      "name": "@lumis-sh/wasm-yaml",
+      "version": "0.26.2",
+      "publisherGitHead": "e7257a3a399409f969efa6a79e7c6f82880547eb",
+      "tarball": "https://registry.npmjs.org/@lumis-sh/wasm-yaml/-/wasm-yaml-0.26.2.tgz",
+      "integrity": "sha512-4WGjfwKxGcNLAiXBqRo7Qu+r6ovnpY1zRadCrMEo0Bf2Hfe0JBr1s3UWTnuDg2FKdQU/F/Rzz7fq4nb/V4DUQg=="
+    }
+  ],
+  "languages": [
+    "python",
+    "javascript",
+    "typescript",
+    "tsx",
+    "go",
+    "rust",
+    "java",
+    "c",
+    "cpp",
+    "c_sharp",
+    "ruby",
+    "php",
+    "swift",
+    "kotlin",
+    "bash",
+    "lua",
+    "scala",
+    "html",
+    "css",
+    "json",
+    "yaml",
+    "toml",
+    "vue",
+    "julia"
+  ],
+  "files": {
+    "tree-sitter.wasm": "f38dcc4b43b818f9a0785bc1c6d5611a75ac4cdd428ff3f02757c34ca4e46d7f",
+    "tree-sitter.mjs": "d4fc466df6358055253bc4cdaab23cdf84fe00741fa5a4ff56506c06c533da42",
+    "grammars/tree-sitter-go.wasm": "9963ca89b616eaf04b08a43bc1fb0f07b85395bec313330851f1f1ead2f755b6",
+    "grammars/tree-sitter-python.wasm": "9056d0fb0c337810d019fae350e8167786119da98f0f282aceae7ab89ee8253b",
+    "grammars/tree-sitter-css.wasm": "5fc615467b1b98420ed7517e5bf9e1f88468132dd903d842dfb13714f6a1cb0c",
+    "grammars/tree-sitter-kotlin.wasm": "b5cb00c8d06ed0f10f1dbe497205b437809d7e87db1f638721a8cfb30e044449",
+    "grammars/tree-sitter-c.wasm": "056b25072382f72deee2c64ec238ffc4bb8cf42844ef21502c0e70f03a8a0d66",
+    "grammars/tree-sitter-php.wasm": "55bb617b6f01e14bab997861f0b20a2420cf6ba3199ffeb295b9ec398966d8a3",
+    "grammars/tree-sitter-java.wasm": "637aac4415fb39a211a4f4292d63c66b5ce9c32fa2cd35464af4f681d91b9a1f",
+    "grammars/tree-sitter-scala.wasm": "160cfbb8ff7220886e99ed9699abceb6d837b4cd28993b9282c7f445a0554abd",
+    "grammars/tree-sitter-vue.wasm": "6244521bb3fb60f34ce5f677f2af81facb2c38691193985ca5fa85e1b6f29250",
+    "grammars/tree-sitter-toml.wasm": "7849ac8ce9d10a4684ca189ea8ad3654c20c38acb2d674a014a164398cbd37a2",
+    "grammars/tree-sitter-ruby.wasm": "93a5022855314cdb45458c7bb026a24a0ebc3a5ff6439e542e881f14dfa13a39",
+    "grammars/tree-sitter-rust.wasm": "4409921a70d0aa5bec7d1d7ce809a557a8ee1cf6ace901e3ac6a76e62cfea903",
+    "grammars/tree-sitter-c_sharp.wasm": "6266a7e32d68a3459104d994dc848df15d5672b0ea8e86d327274b694f8e6991",
+    "grammars/tree-sitter-json.wasm": "fdb5219abe058369e16897aaa11eecf47ef4f546752c3ddbac339cdd89e1e667",
+    "grammars/tree-sitter-javascript.wasm": "63812b9e275d26851264734868d27a1656bd44a2ef6eb3e85e6b03728c595ab5",
+    "grammars/tree-sitter-cpp.wasm": "f6afdf53bfd6de76557bb7edb624a3a3869e14d9a83b78433f93617ecee42527",
+    "grammars/tree-sitter-yaml.wasm": "8193a8c24bc9990f459afcd229bfb1c7219622b2ca0c2581d28659361c188b6f",
+    "grammars/tree-sitter-swift.wasm": "41c4fdb2249a3aa6d87eed0d383081ff09725c2248b4977043a43825980ffcc7",
+    "grammars/tree-sitter-julia.wasm": "a6e8547f996813bb613da1e20c6205094815801ce235abf9884adcc25104d26d",
+    "grammars/tree-sitter-tsx.wasm": "6aa3b2c70e76f5d48eafef1093e9c4de383e13f2fdde2f4e9b98a378f6a8f1b6",
+    "grammars/tree-sitter-bash.wasm": "807dcdb1380a59befb112ed8fbd3d3872c7fadaf5903a769282b50973b30696d",
+    "grammars/tree-sitter-typescript.wasm": "8515404dceed38e1ed86aa34b09fcf3379fff1b4ff9dd3967bcd6d1eb5ac3d8f",
+    "grammars/tree-sitter-html.wasm": "11b3405c1543fb012f5ed7f8ee73125076dce8b168301e1e787e4c717da6b456",
+    "grammars/tree-sitter-lua.wasm": "75ef809136d610068c5b2135741d89f5df62690a3d55169203351cb7cc85727d",
+    "typescript.js": "3ae902c92cc44dace175c0e69e13a4b0899f6983c6121d76b9ab8dd5795e7675"
+  },
+  "provenance": {
+    "method": "Publisher-pinned package bytes; original grammar revisions mapped from packager commit lockfile or Lumis package README. Binaries were not independently rebuilt from source.",
+    "packagerLockfile": {
+      "url": "https://github.com/Gregoor/tree-sitter-wasms/blob/3e88dc9e36b4e8bf752ce53bea61e4b67282a2bb/pnpm-lock.yaml",
+      "sha256": "8c99adcd54f4ee9bfe14e59f93ff55948dbae72b8c35b6c912caf6c0ed93db07"
+    },
+    "grammars": {
+      "python": {
+        "binaryPackage": "tree-sitter-wasms",
+        "upstream": {
+          "name": "tree-sitter-python",
+          "version": "0.21.0",
+          "repository": "https://github.com/tree-sitter/tree-sitter-python",
+          "revision": "0f9047c857ed0990931b1f899c7d3bf403703147",
+          "mappingEvidence": "https://github.com/Gregoor/tree-sitter-wasms/blob/3e88dc9e36b4e8bf752ce53bea61e4b67282a2bb/pnpm-lock.yaml"
+        },
+        "license": {
+          "spdx": "MIT",
+          "file": "licenses/tree-sitter-python.txt",
+          "source": "https://raw.githubusercontent.com/tree-sitter/tree-sitter-python/0f9047c857ed0990931b1f899c7d3bf403703147/LICENSE",
+          "sha256": "d724405ce238a22c0d35769c5a36b386ad5958192efe8bbb304fb2896254575f"
+        }
+      },
+      "javascript": {
+        "binaryPackage": "tree-sitter-wasms",
+        "upstream": {
+          "name": "tree-sitter-javascript",
+          "version": "0.20.4",
+          "repository": "https://github.com/tree-sitter/tree-sitter-javascript",
+          "revision": "de1e682289a417354df5b4437a3e4f92e0722a0f",
+          "mappingEvidence": "https://github.com/Gregoor/tree-sitter-wasms/blob/3e88dc9e36b4e8bf752ce53bea61e4b67282a2bb/pnpm-lock.yaml"
+        },
+        "license": {
+          "spdx": "MIT",
+          "file": "licenses/tree-sitter-javascript.txt",
+          "source": "https://raw.githubusercontent.com/tree-sitter/tree-sitter-javascript/de1e682289a417354df5b4437a3e4f92e0722a0f/LICENSE",
+          "sha256": "2e0110e07abef7c2548b26ec9d6969775617ca539a0dc8dbeeb14d6452c711d1"
+        }
+      },
+      "typescript": {
+        "binaryPackage": "tree-sitter-wasms",
+        "upstream": {
+          "name": "tree-sitter-typescript",
+          "version": "0.20.5",
+          "repository": "https://github.com/tree-sitter/tree-sitter-typescript",
+          "revision": "7db8390a16a2cae317f4f4423a7b642cd4cad8c9",
+          "mappingEvidence": "https://github.com/Gregoor/tree-sitter-wasms/blob/3e88dc9e36b4e8bf752ce53bea61e4b67282a2bb/pnpm-lock.yaml"
+        },
+        "license": {
+          "spdx": "MIT",
+          "file": "licenses/tree-sitter-typescript.txt",
+          "source": "https://raw.githubusercontent.com/tree-sitter/tree-sitter-typescript/7db8390a16a2cae317f4f4423a7b642cd4cad8c9/LICENSE",
+          "sha256": "c873307dab492c1ea6e6d26bf43d0ef9aaac09447d25ff017b20e590f9c6ebe2"
+        }
+      },
+      "tsx": {
+        "binaryPackage": "tree-sitter-wasms",
+        "upstream": {
+          "name": "tree-sitter-typescript",
+          "version": "0.20.5",
+          "repository": "https://github.com/tree-sitter/tree-sitter-typescript",
+          "revision": "7db8390a16a2cae317f4f4423a7b642cd4cad8c9",
+          "mappingEvidence": "https://github.com/Gregoor/tree-sitter-wasms/blob/3e88dc9e36b4e8bf752ce53bea61e4b67282a2bb/pnpm-lock.yaml"
+        },
+        "license": {
+          "spdx": "MIT",
+          "file": "licenses/tree-sitter-typescript.txt",
+          "source": "https://raw.githubusercontent.com/tree-sitter/tree-sitter-typescript/7db8390a16a2cae317f4f4423a7b642cd4cad8c9/LICENSE",
+          "sha256": "c873307dab492c1ea6e6d26bf43d0ef9aaac09447d25ff017b20e590f9c6ebe2"
+        }
+      },
+      "go": {
+        "binaryPackage": "tree-sitter-wasms",
+        "upstream": {
+          "name": "tree-sitter-go",
+          "version": "0.20.0",
+          "repository": "https://github.com/tree-sitter/tree-sitter-go",
+          "revision": "bbaa67a180cfe0c943e50c55130918be8efb20bd",
+          "mappingEvidence": "https://github.com/Gregoor/tree-sitter-wasms/blob/3e88dc9e36b4e8bf752ce53bea61e4b67282a2bb/pnpm-lock.yaml"
+        },
+        "license": {
+          "spdx": "MIT",
+          "file": "licenses/tree-sitter-go.txt",
+          "source": "https://raw.githubusercontent.com/tree-sitter/tree-sitter-go/bbaa67a180cfe0c943e50c55130918be8efb20bd/LICENSE",
+          "sha256": "2e0110e07abef7c2548b26ec9d6969775617ca539a0dc8dbeeb14d6452c711d1"
+        }
+      },
+      "rust": {
+        "binaryPackage": "tree-sitter-wasms",
+        "upstream": {
+          "name": "tree-sitter-rust",
+          "version": "0.20.4",
+          "repository": "https://github.com/tree-sitter/tree-sitter-rust",
+          "revision": "afb6000a71fb9dff3f47f90d412ec080ae12bbb4",
+          "mappingEvidence": "https://github.com/Gregoor/tree-sitter-wasms/blob/3e88dc9e36b4e8bf752ce53bea61e4b67282a2bb/pnpm-lock.yaml"
+        },
+        "license": {
+          "spdx": "MIT",
+          "file": "licenses/tree-sitter-rust.txt",
+          "source": "https://raw.githubusercontent.com/tree-sitter/tree-sitter-rust/afb6000a71fb9dff3f47f90d412ec080ae12bbb4/LICENSE",
+          "sha256": "31d5b6f4243d5c7c6e1c4ebbbb9f6407bd1457a08bcc4f706521710341acba36"
+        }
+      },
+      "java": {
+        "binaryPackage": "tree-sitter-wasms",
+        "upstream": {
+          "name": "tree-sitter-java",
+          "version": "0.20.2",
+          "repository": "https://github.com/tree-sitter/tree-sitter-java",
+          "revision": "2b57cd9541f9fd3a89207d054ce8fbe72657c444",
+          "mappingEvidence": "https://github.com/Gregoor/tree-sitter-wasms/blob/3e88dc9e36b4e8bf752ce53bea61e4b67282a2bb/pnpm-lock.yaml"
+        },
+        "license": {
+          "spdx": "MIT",
+          "file": "licenses/tree-sitter-java.txt",
+          "source": "https://raw.githubusercontent.com/tree-sitter/tree-sitter-java/2b57cd9541f9fd3a89207d054ce8fbe72657c444/LICENSE",
+          "sha256": "52ed137b039cd9c46409bc22e89938af911c95b157feae2d040b51e6084369a7"
+        }
+      },
+      "c": {
+        "binaryPackage": "tree-sitter-wasms",
+        "upstream": {
+          "name": "tree-sitter-c",
+          "version": "0.20.8",
+          "repository": "https://github.com/tree-sitter/tree-sitter-c",
+          "revision": "25ca2718aacaf0feda8b0709471332f303a0cef5",
+          "mappingEvidence": "https://github.com/Gregoor/tree-sitter-wasms/blob/3e88dc9e36b4e8bf752ce53bea61e4b67282a2bb/pnpm-lock.yaml"
+        },
+        "license": {
+          "spdx": "MIT",
+          "file": "licenses/tree-sitter-c.txt",
+          "source": "https://raw.githubusercontent.com/tree-sitter/tree-sitter-c/25ca2718aacaf0feda8b0709471332f303a0cef5/LICENSE",
+          "sha256": "2e0110e07abef7c2548b26ec9d6969775617ca539a0dc8dbeeb14d6452c711d1"
+        }
+      },
+      "cpp": {
+        "binaryPackage": "tree-sitter-wasms",
+        "upstream": {
+          "name": "tree-sitter-cpp",
+          "version": "0.20.5",
+          "repository": "https://github.com/tree-sitter/tree-sitter-cpp",
+          "revision": "e0c1678a78731e78655b7d953efb4daecf58be46",
+          "mappingEvidence": "https://github.com/Gregoor/tree-sitter-wasms/blob/3e88dc9e36b4e8bf752ce53bea61e4b67282a2bb/pnpm-lock.yaml"
+        },
+        "license": {
+          "spdx": "MIT",
+          "file": "licenses/tree-sitter-cpp.txt",
+          "source": "https://raw.githubusercontent.com/tree-sitter/tree-sitter-cpp/e0c1678a78731e78655b7d953efb4daecf58be46/LICENSE",
+          "sha256": "2e0110e07abef7c2548b26ec9d6969775617ca539a0dc8dbeeb14d6452c711d1"
+        }
+      },
+      "c_sharp": {
+        "binaryPackage": "tree-sitter-wasms",
+        "upstream": {
+          "name": "tree-sitter-c-sharp",
+          "version": "0.20.0",
+          "repository": "https://github.com/tree-sitter/tree-sitter-c-sharp",
+          "revision": "7a47daeaf0d410dd1a91c97b274bb7276dd96605",
+          "mappingEvidence": "https://github.com/Gregoor/tree-sitter-wasms/blob/3e88dc9e36b4e8bf752ce53bea61e4b67282a2bb/pnpm-lock.yaml"
+        },
+        "license": {
+          "spdx": "MIT",
+          "file": "licenses/tree-sitter-c-sharp.txt",
+          "source": "https://raw.githubusercontent.com/tree-sitter/tree-sitter-c-sharp/7a47daeaf0d410dd1a91c97b274bb7276dd96605/LICENSE",
+          "sha256": "2e0110e07abef7c2548b26ec9d6969775617ca539a0dc8dbeeb14d6452c711d1"
+        }
+      },
+      "ruby": {
+        "binaryPackage": "tree-sitter-wasms",
+        "upstream": {
+          "name": "tree-sitter-ruby",
+          "version": "0.20.1",
+          "repository": "https://github.com/tree-sitter/tree-sitter-ruby",
+          "revision": "7a010836b74351855148818d5cb8170dc4df8e6a",
+          "mappingEvidence": "https://github.com/Gregoor/tree-sitter-wasms/blob/3e88dc9e36b4e8bf752ce53bea61e4b67282a2bb/pnpm-lock.yaml"
+        },
+        "license": {
+          "spdx": "MIT",
+          "file": "licenses/tree-sitter-ruby.txt",
+          "source": "https://raw.githubusercontent.com/tree-sitter/tree-sitter-ruby/7a010836b74351855148818d5cb8170dc4df8e6a/LICENSE",
+          "sha256": "ee006f02a3d856df282e409be2a86e24a65bb573a98b9c28343771141351bb6b"
+        }
+      },
+      "php": {
+        "binaryPackage": "tree-sitter-wasms",
+        "upstream": {
+          "name": "tree-sitter-php",
+          "version": "0.22.8",
+          "repository": "https://github.com/tree-sitter/tree-sitter-php",
+          "revision": "c07d69739ba71b5a449bdbb7735991f8aabf8546",
+          "mappingEvidence": "https://github.com/Gregoor/tree-sitter-wasms/blob/3e88dc9e36b4e8bf752ce53bea61e4b67282a2bb/pnpm-lock.yaml"
+        },
+        "license": {
+          "spdx": "MIT",
+          "file": "licenses/tree-sitter-php.txt",
+          "source": "https://raw.githubusercontent.com/tree-sitter/tree-sitter-php/c07d69739ba71b5a449bdbb7735991f8aabf8546/LICENSE",
+          "sha256": "664764fabf40c0b318e06324a5a12379092a2df25b8cbf2415f71bc0bb352346"
+        }
+      },
+      "swift": {
+        "binaryPackage": "tree-sitter-wasms",
+        "upstream": {
+          "name": "tree-sitter-swift",
+          "version": "0.4.3",
+          "repository": "https://github.com/alex-pinkus/tree-sitter-swift",
+          "revision": "47abc888b965c84932d5709008fb370464e812eb",
+          "mappingEvidence": "https://github.com/Gregoor/tree-sitter-wasms/blob/3e88dc9e36b4e8bf752ce53bea61e4b67282a2bb/pnpm-lock.yaml"
+        },
+        "license": {
+          "spdx": "MIT",
+          "file": "licenses/tree-sitter-swift.txt",
+          "source": "https://raw.githubusercontent.com/alex-pinkus/tree-sitter-swift/47abc888b965c84932d5709008fb370464e812eb/LICENSE",
+          "sha256": "3533cec129bb4bba015c0d61d86dd7c3b7e82110e4d2ff7837a01eff5bad5ccc"
+        }
+      },
+      "kotlin": {
+        "binaryPackage": "tree-sitter-wasms",
+        "upstream": {
+          "name": "tree-sitter-kotlin",
+          "version": "0.3.8",
+          "repository": "https://github.com/fwcd/tree-sitter-kotlin",
+          "revision": "e1a2d5ad1f61f5740677183cd4125bb071cd2f30",
+          "mappingEvidence": "https://github.com/Gregoor/tree-sitter-wasms/blob/3e88dc9e36b4e8bf752ce53bea61e4b67282a2bb/pnpm-lock.yaml"
+        },
+        "license": {
+          "spdx": "MIT",
+          "file": "licenses/tree-sitter-kotlin.txt",
+          "source": "https://raw.githubusercontent.com/fwcd/tree-sitter-kotlin/e1a2d5ad1f61f5740677183cd4125bb071cd2f30/LICENSE",
+          "sha256": "948495f61768f7de26bcc61113d8cd95f50bbc15adb678c28c941c6c8fcd5903"
+        }
+      },
+      "bash": {
+        "binaryPackage": "tree-sitter-wasms",
+        "upstream": {
+          "name": "tree-sitter-bash",
+          "version": "0.20.5",
+          "repository": "https://github.com/tree-sitter/tree-sitter-bash",
+          "revision": "d1a1a3fe7189fdab5bd29a54d1df4a5873db5cb1",
+          "mappingEvidence": "https://github.com/Gregoor/tree-sitter-wasms/blob/3e88dc9e36b4e8bf752ce53bea61e4b67282a2bb/pnpm-lock.yaml"
+        },
+        "license": {
+          "spdx": "MIT",
+          "file": "licenses/tree-sitter-bash.txt",
+          "source": "https://raw.githubusercontent.com/tree-sitter/tree-sitter-bash/d1a1a3fe7189fdab5bd29a54d1df4a5873db5cb1/LICENSE",
+          "sha256": "49bf33cf78ef5897e4e161ce1517df7de1ae5042a65b6bcfd44401e0fc606559"
+        }
+      },
+      "lua": {
+        "binaryPackage": "tree-sitter-wasms",
+        "upstream": {
+          "name": "tree-sitter-lua",
+          "version": "2.1.3",
+          "repository": "https://github.com/Azganoth/tree-sitter-lua",
+          "revision": "6b02dfd7f07f36c223270e97eb0adf84e15a4cef",
+          "mappingEvidence": "https://github.com/Gregoor/tree-sitter-wasms/blob/3e88dc9e36b4e8bf752ce53bea61e4b67282a2bb/pnpm-lock.yaml"
+        },
+        "license": {
+          "spdx": "MIT",
+          "file": "licenses/tree-sitter-lua.txt",
+          "source": "https://raw.githubusercontent.com/Azganoth/tree-sitter-lua/6b02dfd7f07f36c223270e97eb0adf84e15a4cef/LICENSE.txt",
+          "sha256": "07e1e910ecd175a9df2145e467f3827ac4fc710d893f24bdd78046026769a895"
+        }
+      },
+      "scala": {
+        "binaryPackage": "tree-sitter-wasms",
+        "upstream": {
+          "name": "tree-sitter-scala",
+          "version": "0.19.0",
+          "repository": "https://github.com/tree-sitter/tree-sitter-scala",
+          "revision": "262797b1dfe0303818c2418c0a88f6be65f37245",
+          "mappingEvidence": "https://github.com/Gregoor/tree-sitter-wasms/blob/3e88dc9e36b4e8bf752ce53bea61e4b67282a2bb/pnpm-lock.yaml"
+        },
+        "license": {
+          "spdx": "MIT",
+          "file": "licenses/tree-sitter-scala.txt",
+          "source": "https://raw.githubusercontent.com/tree-sitter/tree-sitter-scala/262797b1dfe0303818c2418c0a88f6be65f37245/LICENSE",
+          "sha256": "1f95ed26e1f4074074c9c7083e61c0a9e4c3b9f435745044995f3beb4ed28575"
+        }
+      },
+      "html": {
+        "binaryPackage": "tree-sitter-wasms",
+        "upstream": {
+          "name": "tree-sitter-html",
+          "version": "0.20.4",
+          "repository": "https://github.com/tree-sitter/tree-sitter-html",
+          "revision": "3713d4004c2259f7658eaad367dbad1a3989429d",
+          "mappingEvidence": "https://github.com/Gregoor/tree-sitter-wasms/blob/3e88dc9e36b4e8bf752ce53bea61e4b67282a2bb/pnpm-lock.yaml"
+        },
+        "license": {
+          "spdx": "MIT",
+          "file": "licenses/tree-sitter-html.txt",
+          "source": "https://raw.githubusercontent.com/tree-sitter/tree-sitter-html/3713d4004c2259f7658eaad367dbad1a3989429d/LICENSE",
+          "sha256": "2e0110e07abef7c2548b26ec9d6969775617ca539a0dc8dbeeb14d6452c711d1"
+        }
+      },
+      "css": {
+        "binaryPackage": "tree-sitter-wasms",
+        "upstream": {
+          "name": "tree-sitter-css",
+          "version": "0.20.0",
+          "repository": "https://github.com/tree-sitter/tree-sitter-css",
+          "revision": "98c7b3dceb24f1ee17f1322f3947e55638251c37",
+          "mappingEvidence": "https://github.com/Gregoor/tree-sitter-wasms/blob/3e88dc9e36b4e8bf752ce53bea61e4b67282a2bb/pnpm-lock.yaml"
+        },
+        "license": {
+          "spdx": "MIT",
+          "file": "licenses/tree-sitter-css.txt",
+          "source": "https://raw.githubusercontent.com/tree-sitter/tree-sitter-css/98c7b3dceb24f1ee17f1322f3947e55638251c37/LICENSE",
+          "sha256": "c5cfb43042b6b72045f4ba997834d0a7786d2793d91680868b5815b39f14fc78"
+        }
+      },
+      "json": {
+        "binaryPackage": "tree-sitter-wasms",
+        "upstream": {
+          "name": "tree-sitter-json",
+          "version": "0.20.2",
+          "repository": "https://github.com/tree-sitter/tree-sitter-json",
+          "revision": "c5a9a9af069de3fe0ef5fa2fa001b6a2e44d75b2",
+          "mappingEvidence": "https://github.com/Gregoor/tree-sitter-wasms/blob/3e88dc9e36b4e8bf752ce53bea61e4b67282a2bb/pnpm-lock.yaml"
+        },
+        "license": {
+          "spdx": "MIT",
+          "file": "licenses/tree-sitter-json.txt",
+          "source": "https://raw.githubusercontent.com/tree-sitter/tree-sitter-json/c5a9a9af069de3fe0ef5fa2fa001b6a2e44d75b2/LICENSE",
+          "sha256": "2e0110e07abef7c2548b26ec9d6969775617ca539a0dc8dbeeb14d6452c711d1"
+        }
+      },
+      "yaml": {
+        "binaryPackage": "@lumis-sh/wasm-yaml",
+        "upstream": {
+          "name": "tree-sitter-yaml",
+          "version": "0.7.2",
+          "repository": "https://github.com/ericmj/tree-sitter-yaml",
+          "revision": "f1790f0a8246a650466bfd342b1c2c373c14b76c",
+          "mappingEvidence": "https://unpkg.com/@lumis-sh/wasm-yaml@0.26.2/README.md"
+        },
+        "license": {
+          "spdx": "MIT",
+          "file": "licenses/tree-sitter-yaml.txt",
+          "source": "https://raw.githubusercontent.com/ericmj/tree-sitter-yaml/f1790f0a8246a650466bfd342b1c2c373c14b76c/LICENSE",
+          "sha256": "2d181298822a124f6d106118dcc69c8d4d26ac668559be29682c452e712b0947"
+        }
+      },
+      "toml": {
+        "binaryPackage": "tree-sitter-wasms",
+        "upstream": {
+          "name": "tree-sitter-toml",
+          "version": "0.5.1",
+          "repository": "https://github.com/ikatyang/tree-sitter-toml",
+          "revision": "474fbbec27e27d76b45aeaf9191e8acb13a699e2",
+          "mappingEvidence": "https://github.com/Gregoor/tree-sitter-wasms/blob/3e88dc9e36b4e8bf752ce53bea61e4b67282a2bb/pnpm-lock.yaml"
+        },
+        "license": {
+          "spdx": "MIT",
+          "file": "licenses/tree-sitter-toml.txt",
+          "source": "https://raw.githubusercontent.com/ikatyang/tree-sitter-toml/474fbbec27e27d76b45aeaf9191e8acb13a699e2/LICENSE",
+          "sha256": "b727eee929bee836e8102cecf749a795b199f291b58c885bcd81cae727ac5a46"
+        }
+      },
+      "vue": {
+        "binaryPackage": "tree-sitter-wasms",
+        "upstream": {
+          "name": "tree-sitter-vue",
+          "version": null,
+          "repository": "https://github.com/tree-sitter-grammars/tree-sitter-vue",
+          "revision": "7e48557b903a9db9c38cea3b7839ef7e1f36c693",
+          "mappingEvidence": "https://github.com/Gregoor/tree-sitter-wasms/blob/3e88dc9e36b4e8bf752ce53bea61e4b67282a2bb/pnpm-lock.yaml"
+        },
+        "license": {
+          "spdx": "MIT",
+          "file": "licenses/tree-sitter-vue.txt",
+          "source": "https://raw.githubusercontent.com/tree-sitter-grammars/tree-sitter-vue/7e48557b903a9db9c38cea3b7839ef7e1f36c693/LICENSE",
+          "sha256": "b727eee929bee836e8102cecf749a795b199f291b58c885bcd81cae727ac5a46"
+        }
+      },
+      "julia": {
+        "binaryPackage": "@lumis-sh/wasm-julia",
+        "upstream": {
+          "name": "tree-sitter-julia",
+          "version": "0.23.1",
+          "repository": "https://github.com/tree-sitter/tree-sitter-julia",
+          "revision": "a8e1262997d5a45520a06cbe1b86c0737d507054",
+          "mappingEvidence": "https://unpkg.com/@lumis-sh/wasm-julia@0.26.2/README.md"
+        },
+        "license": {
+          "spdx": "MIT",
+          "file": "licenses/tree-sitter-julia.txt",
+          "source": "https://raw.githubusercontent.com/tree-sitter/tree-sitter-julia/a8e1262997d5a45520a06cbe1b86c0737d507054/LICENSE",
+          "sha256": "74f800107f200f4e28da33e9c3f86230d37d8f4c0a4916f7111e800c395ee3a2"
+        }
+      }
+    }
+  },
+  "licenses": {
+    "licenses/tree-sitter-bash.txt": "49bf33cf78ef5897e4e161ce1517df7de1ae5042a65b6bcfd44401e0fc606559",
+    "licenses/tree-sitter-c-sharp.txt": "2e0110e07abef7c2548b26ec9d6969775617ca539a0dc8dbeeb14d6452c711d1",
+    "licenses/tree-sitter-c.txt": "2e0110e07abef7c2548b26ec9d6969775617ca539a0dc8dbeeb14d6452c711d1",
+    "licenses/tree-sitter-cpp.txt": "2e0110e07abef7c2548b26ec9d6969775617ca539a0dc8dbeeb14d6452c711d1",
+    "licenses/tree-sitter-css.txt": "c5cfb43042b6b72045f4ba997834d0a7786d2793d91680868b5815b39f14fc78",
+    "licenses/tree-sitter-go.txt": "2e0110e07abef7c2548b26ec9d6969775617ca539a0dc8dbeeb14d6452c711d1",
+    "licenses/tree-sitter-html.txt": "2e0110e07abef7c2548b26ec9d6969775617ca539a0dc8dbeeb14d6452c711d1",
+    "licenses/tree-sitter-java.txt": "52ed137b039cd9c46409bc22e89938af911c95b157feae2d040b51e6084369a7",
+    "licenses/tree-sitter-javascript.txt": "2e0110e07abef7c2548b26ec9d6969775617ca539a0dc8dbeeb14d6452c711d1",
+    "licenses/tree-sitter-json.txt": "2e0110e07abef7c2548b26ec9d6969775617ca539a0dc8dbeeb14d6452c711d1",
+    "licenses/tree-sitter-julia.txt": "74f800107f200f4e28da33e9c3f86230d37d8f4c0a4916f7111e800c395ee3a2",
+    "licenses/tree-sitter-kotlin.txt": "948495f61768f7de26bcc61113d8cd95f50bbc15adb678c28c941c6c8fcd5903",
+    "licenses/tree-sitter-lua.txt": "07e1e910ecd175a9df2145e467f3827ac4fc710d893f24bdd78046026769a895",
+    "licenses/tree-sitter-php.txt": "664764fabf40c0b318e06324a5a12379092a2df25b8cbf2415f71bc0bb352346",
+    "licenses/tree-sitter-python.txt": "d724405ce238a22c0d35769c5a36b386ad5958192efe8bbb304fb2896254575f",
+    "licenses/tree-sitter-ruby.txt": "ee006f02a3d856df282e409be2a86e24a65bb573a98b9c28343771141351bb6b",
+    "licenses/tree-sitter-rust.txt": "31d5b6f4243d5c7c6e1c4ebbbb9f6407bd1457a08bcc4f706521710341acba36",
+    "licenses/tree-sitter-scala.txt": "1f95ed26e1f4074074c9c7083e61c0a9e4c3b9f435745044995f3beb4ed28575",
+    "licenses/tree-sitter-swift.txt": "3533cec129bb4bba015c0d61d86dd7c3b7e82110e4d2ff7837a01eff5bad5ccc",
+    "licenses/tree-sitter-toml.txt": "b727eee929bee836e8102cecf749a795b199f291b58c885bcd81cae727ac5a46",
+    "licenses/tree-sitter-typescript.txt": "c873307dab492c1ea6e6d26bf43d0ef9aaac09447d25ff017b20e590f9c6ebe2",
+    "licenses/tree-sitter-vue.txt": "b727eee929bee836e8102cecf749a795b199f291b58c885bcd81cae727ac5a46",
+    "licenses/tree-sitter-wasms.txt": "6b0382b16279f26ff69014300541967a356a666eb0b91b422f6862f6b7dad17e",
+    "licenses/tree-sitter-yaml.txt": "2d181298822a124f6d106118dcc69c8d4d26ac668559be29682c452e712b0947",
+    "licenses/typescript-Apache-2.0.txt": "a7d00bfd54525bc694b6e32f64c7ebcf5e6b7ae3657be5cc12767bce74654a47",
+    "licenses/web-tree-sitter.txt": "5f9cf9fb6acb1972b35ae29119ce563bb60ec097656bc4b69b9bac2d04c7a147"
+  },
+  "semanticCompiler": {
+    "package": "typescript",
+    "version": "5.9.3",
+    "license": "Apache-2.0",
+    "source": "https://github.com/microsoft/TypeScript/tree/v5.9.3"
+  }
+}

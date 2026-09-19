@@ -1,6 +1,83 @@
 /* Pure graph operations, shared by the viewer and the validation script. */
 (function (root) {
   "use strict";
+  const limits = Object.freeze({ nodes: 500000, hierarchy: 100000, edges: 1000000, documents: 100000 });
+  const indexes = new WeakMap();
+
+  /** Read-only indexes for immutable model snapshots. Descendant lists are
+   * computed on demand so a shallow view does not materialize every subtree. */
+  function index(model) {
+    if (indexes.has(model)) return indexes.get(model);
+    const nodes = new Map(model.nodes.map(item => [item.id, item]));
+    const containers = new Map((model.hierarchy || model.groups).map(item => [item.id, item]));
+    const all = new Map([...containers, ...nodes]);
+    const children = new Map(), parents = new Map(), depths = new Map();
+    for (const [id, item] of all) {
+      const parentId = item.parentId || (nodes.has(id) ? item.group : null) || null;
+      if (parentId && !all.has(parentId)) throw new Error("Unknown hierarchy parent.");
+      parents.set(id, parentId);
+      if (!children.has(parentId)) children.set(parentId, []);
+      children.get(parentId).push(item);
+    }
+    for (const id of all.keys()) {
+      if (depths.has(id)) continue;
+      const trail = [], pending = new Set();
+      let cursor = id;
+      while (cursor && !depths.has(cursor)) {
+        if (pending.has(cursor)) throw new Error("Hierarchy contains a cycle.");
+        pending.add(cursor); trail.push(cursor); cursor = parents.get(cursor);
+      }
+      let depth = cursor ? depths.get(cursor) : 0;
+      for (let i = trail.length - 1; i >= 0; i--) depths.set(trail[i], ++depth);
+    }
+    const edges = new Map(), incoming = new Map(), outgoing = new Map();
+    for (const edge of model.edges) {
+      edges.set(edge.id, edge);
+      if (!incoming.has(edge.target)) incoming.set(edge.target, []);
+      if (!outgoing.has(edge.source)) outgoing.set(edge.source, []);
+      incoming.get(edge.target).push(edge); outgoing.get(edge.source).push(edge);
+    }
+    const memberCache = new Map();
+    function getMembers(id) {
+      if (memberCache.has(id)) return memberCache.get(id);
+      const result = [], stack = all.has(id) ? [id] : [];
+      while (stack.length) {
+        const current = stack.pop();
+        if (nodes.has(current)) result.push(current);
+        const descendants = children.get(current) || [];
+        for (let i = descendants.length - 1; i >= 0; i--) stack.push(descendants[i].id);
+      }
+      memberCache.set(id, result);
+      return result;
+    }
+    function incident(id) {
+      if (nodes.has(id)) return { incoming: incoming.get(id) || [], outgoing: outgoing.get(id) || [] };
+      const members = new Set(getMembers(id)), inEdges = [], outEdges = [];
+      for (const member of members) {
+        for (const edge of incoming.get(member) || []) if (!members.has(edge.source)) inEdges.push(edge);
+        for (const edge of outgoing.get(member) || []) if (!members.has(edge.target)) outEdges.push(edge);
+      }
+      return { incoming: inEdges, outgoing: outEdges };
+    }
+    function boundary(id, type = "all") {
+      const members = new Set(getMembers(id));
+      const result = { incoming: [], outgoing: [], internal: [] };
+      for (const member of members) {
+        for (const edge of incoming.get(member) || [])
+          if ((type === "all" || edge.type === type) && !members.has(edge.source))
+            result.incoming.push(edge.id);
+        for (const edge of outgoing.get(member) || []) {
+          if (type !== "all" && edge.type !== type) continue;
+          result[members.has(edge.target) ? "internal" : "outgoing"].push(edge.id);
+        }
+      }
+      return result;
+    }
+    const result = Object.freeze({ nodes, containers, all, children, parents, depths, edges,
+      incoming, outgoing, getMembers, incident, boundary });
+    indexes.set(model, result);
+    return result;
+  }
   function adjacency(edges, direction = "downstream") {
     const graph = new Map();
     for (const edge of edges) {
@@ -40,13 +117,13 @@
           edgeIds = [];
         let cursor = end;
         while (cursor !== null) {
-          nodes.unshift(cursor);
+          nodes.push(cursor);
           const step = prior.get(cursor);
           if (!step) break;
-          edgeIds.unshift(step.edge);
+          edgeIds.push(step.edge);
           cursor = step.node;
         }
-        return { nodes, edges: edgeIds };
+        return { nodes: nodes.reverse(), edges: edgeIds.reverse() };
       }
       for (const edge of graph.get(id) || [])
         if (!prior.has(edge.to)) {
@@ -119,8 +196,8 @@
       checkEvidence(item);
     };
     object(model, "模型");
-    array(model.nodes, "nodes", 1500);
-    array(model.edges, "edges", 10000);
+    array(model.nodes, "nodes", limits.nodes);
+    array(model.edges, "edges", limits.edges);
     array(model.groups, "groups", 256);
     if (!model.nodes.length || !model.groups.length)
       fail("模型至少需要一个组件和一个分组。");
@@ -147,7 +224,7 @@
     const containers =
       model.hierarchy === undefined
         ? model.groups
-        : array(model.hierarchy, "hierarchy", 1500);
+        : array(model.hierarchy, "hierarchy", limits.hierarchy);
     const all = new Map();
     for (const item of [...containers, ...model.nodes]) {
       named(item, "node");
@@ -159,20 +236,33 @@
     for (const groupId of groups)
       if (!containerIds.has(groupId) || all.get(groupId).parentId)
         fail("每个分组必须对应一个顶层容器。");
+    const ancestry = new Map();
+    function ancestryOf(id) {
+      const trail = [], pending = new Set();
+      let cursor = id;
+      while (!ancestry.has(cursor)) {
+        const item = all.get(cursor);
+        if (!item) fail("父容器不存在。");
+        if (pending.has(cursor)) fail("层级包含循环。");
+        if (!item.parentId) {
+          ancestry.set(cursor, { rootId: leaves.has(cursor) ? item.group : cursor, depth: 1 });
+          break;
+        }
+        if (!containerIds.has(item.parentId)) fail("父容器不存在。");
+        pending.add(cursor); trail.push(cursor); cursor = item.parentId;
+      }
+      let result = ancestry.get(cursor);
+      for (let i = trail.length - 1; i >= 0; i--) {
+        result = { rootId: result.rootId, depth: result.depth + 1 };
+        if (result.depth > 64) fail("层级深度超过 64 层。");
+        ancestry.set(trail[i], result);
+      }
+      return ancestry.get(id);
+    }
     for (const item of all.values()) {
       if (item.parentId && !containerIds.has(item.parentId))
         fail("父容器不存在。");
-      const visited = new Set([item.id]);
-      let current = item;
-      while (current.parentId) {
-        if (visited.has(current.parentId)) fail("层级包含循环。");
-        visited.add(current.parentId);
-        if (visited.size > 64) fail("层级深度超过 64 层。");
-        current = all.get(current.parentId);
-        if (!current) fail("父容器不存在。");
-      }
-      const rootId =
-        leaves.has(item.id) && !item.parentId ? item.group : current.id;
+      const { rootId } = ancestryOf(item.id);
       if (!groups.has(rootId)) fail("层级必须归属于一个顶层分组。");
       if (leaves.has(item.id) && !groups.has(item.group))
         fail("组件的 group 必须存在。");
@@ -181,7 +271,7 @@
       for (const field of ["inputs", "outputs"])
         if (item[field] !== undefined) textList(item[field], field);
       if (item.functions !== undefined)
-        for (const fn of array(item.functions, "functions", 1000)) {
+        for (const fn of array(item.functions, "functions", limits.nodes)) {
           object(fn, "function");
           if (typeof fn.name !== "string" || !fn.name.trim())
             fail("函数需要非空 name。");
@@ -195,7 +285,7 @@
     const documents =
       model.documents === undefined
         ? []
-        : array(model.documents, "documents", 1000);
+        : array(model.documents, "documents", limits.documents);
     const documentIds = new Set();
     for (const doc of documents) {
       object(doc, "document");
@@ -208,7 +298,7 @@
     }
     for (const item of all.values())
       if (item.documentIds !== undefined) {
-        textList(item.documentIds, "documentIds", 1000);
+        textList(item.documentIds, "documentIds", limits.documents);
         if (item.documentIds.some((docId) => !documentIds.has(docId)))
           fail("节点引用了未知文档。");
       }
@@ -235,7 +325,7 @@
       named(flow, "flow");
       if (flowIds.has(flow.id)) fail("流程 ID 重复。");
       flowIds.add(flow.id);
-      textList(flow.nodes, "flow.nodes", 1500);
+      textList(flow.nodes, "flow.nodes", limits.nodes);
       if (
         !flow.nodes.length ||
         flow.nodes.some((nodeId) => !leaves.has(nodeId))
@@ -243,7 +333,7 @@
         fail("场景必须包含已知节点。");
       const selectedNodes = new Set(flow.nodes);
       if (flow.edgeIds !== undefined) {
-        textList(flow.edgeIds, "flow.edgeIds", 10000);
+        textList(flow.edgeIds, "flow.edgeIds", limits.edges);
         if (flow.edgeIds.some((edgeId) => !edgeMap.has(edgeId)))
           fail("场景包含未知关系。");
         if (
@@ -263,18 +353,17 @@
           flow.edgeIds === undefined
             ? model.edges
             : flow.edgeIds.map((edgeId) => edgeMap.get(edgeId));
+        const links = new Map();
+        for (const edge of allowed) {
+          if (!links.has(edge.source)) links.set(edge.source, new Set());
+          links.get(edge.source).add(edge.target);
+        }
         for (let i = 1; i < flow.nodes.length; i++)
-          if (
-            !allowed.some(
-              (edge) =>
-                edge.source === flow.nodes[i - 1] &&
-                edge.target === flow.nodes[i],
-            )
-          )
+          if (!links.get(flow.nodes[i - 1])?.has(flow.nodes[i]))
             fail("路径中的相邻节点没有有向关系。");
       }
     }
     return true;
   }
-  root.AtlasGraph = { reachable, shortestPath, validate };
+  root.AtlasGraph = { reachable, shortestPath, validate, index, limits };
 })(typeof window !== "undefined" ? window : globalThis);

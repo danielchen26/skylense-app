@@ -6,7 +6,7 @@ Skylense supports standard local stdio MCP and a portable skill; host-specific p
 skylense config --root /path/to/project
 ```
 
-Copy the generated command and args into a compatible client's MCP configuration. Omit --root for public URLs and bundled models only. Eight tools provide source analysis, model export, list/search/inspect/traverse/scenario/view operations. Query their schemas instead of guessing fields.
+Copy the generated command and args into a compatible client's MCP configuration. Omit --root for public URLs and bundled models only. Nine tools provide source analysis, model export, list/search/inspect/traverse/path/scenario/view operations. Ordered waypoint paths use the same canonical graph and engine as the Web app. Query their schemas instead of guessing fields.
 
 [Full setup](../guides/AGENTS.md) · [Portable skill](skills/skylense/SKILL.md) · [Source support](../guides/SOURCES.md) · [Model contract](../guides/MODEL.md)
 

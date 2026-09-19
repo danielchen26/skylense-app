@@ -21,6 +21,7 @@ Download the Agent toolkit from the release page and install the local TGZ first
 | `inspect repo ID` | Read an object, contracts, relationships and source evidence |
 | `search repo words... --limit 20` | Search model labels, paths, symbols and summaries |
 | `trace repo ID --direction downstream --depth 3` | Traverse directed relationships up to the specified depth |
+| `path repo START END --via MID1,MID2` | Find ordered waypoint paths with optional direction, type and hop filters |
 | `flows repo` | List curated reading scenarios |
 | `tui [repo]` | Open the interactive terminal explorer |
 | `config` | Print generic MCP connection JSON for this machine |
@@ -29,6 +30,17 @@ Download the Agent toolkit from the release page and install the local TGZ first
 `tree` and `tui` default to `autoresearch`. Read commands accept `--json` for structured output. `--width 80` bounds plain-text lines; human-readable results are capped, while JSON preserves the selected structured result. Tree depth is 1–16; traversal depth is 0–12. `--direction` also accepts `upstream` and `both`. Unknown flags, repeated flags, extra positional arguments and invalid ranges fail with a nonzero exit status and a diagnostic on stderr.
 
 Use `--` before a search phrase beginning with a dash. For example: `skylense search autoresearch -- --optimizer`.
+
+## Path planning
+
+Plan a path through required intermediate nodes using the same engine as the Web app:
+
+```sh
+skylense path autoresearch AR_gpt_forward AR_mlp --via AR_block_forward --limit 3
+skylense path custom START END --via WAYPOINT_1,WAYPOINT_2 --direction both --types calls,imports --max-hops 24 --model model.json --json
+```
+
+The path command searches the complete stored graph and preserves ordered waypoints, original edge identities and directions. Upstream reading marks reversed steps. It returns a specific unreachable segment or an explicit search limit when it cannot establish a route. `--limit` is 1–3 alternatives for this command; `--max-hops` limits the entire route to 1–48 hops. At most six intermediate nodes are accepted. Paths describe static graph relationships, not observed execution.
 
 ## Interactive controls
 
