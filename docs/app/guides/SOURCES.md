@@ -12,10 +12,10 @@ Choose **打开来源 / Open source**. Select a folder, select files, enter a UR
 
 ## From the CLI
 
-Install the downloaded `skylense-0.3.1.tgz` with Node.js 22+:
+Install the downloaded `skylense-0.3.2.tgz` with Node.js 22+:
 
 ```sh
-npm install --global ./skylense-0.3.1.tgz
+npm install --global ./skylense-0.3.2.tgz
 skylense open /path/to/project
 skylense open https://github.com/karpathy/autoresearch
 skylense open https://example.com
@@ -37,14 +37,15 @@ An existing validated Skylense model is opened without flattening its authored h
 | Source | Automatic result |
 | --- | --- |
 | A folder of any file types | Folder/file hierarchy, file type, available text preview or metadata-only status |
-| Python / JavaScript / TypeScript | Lexical declarations and imports that resolve to included files; original line evidence |
-| HTML / Markdown | Authored headings and explicit document references; webpage links can appear as clearly marked, unfetched targets |
+| Python | File → class/function → method/nested-function navigation, qualified names, bounded body previews, imports and conservatively resolved bare-call candidates |
+| JavaScript / TypeScript | Navigable lexical declarations and imports that resolve to included files; original line evidence |
+| HTML / Markdown | Authored headings and explicit document references; HTML script/stylesheet resources are distinct load edges; webpage targets may be marked unfetched |
 | Other text formats/languages | Text/source preview and hierarchy; no unsupported call-graph claims |
 | PDF, office documents, images, archives or other binary content | File metadata; their internal content is not decoded by this version |
 
-Imports are static candidates, not verified runtime calls. Dynamic dispatch, framework registration, aliases and external package resolution are not inferred. The analyzer creates no execution scenarios. An agent can author richer roles, contracts and guided scenarios with source evidence using the [model contract](MODEL.md); the existing viewer already supports those fields.
+Imports and Python bare calls are static candidates, not verified runtime calls. Python class and function scopes retain qualified names, and uncertain/shadowed call targets remain unresolved. Dynamic dispatch, framework registration, aliases and external package resolution are not inferred. The analyzer creates no execution scenarios. An agent can author richer roles, contracts and guided scenarios with source evidence using the [model contract](MODEL.md); the existing viewer already supports those fields.
 
-Default limit: **300 files**, adjustable to **1,000**. Hierarchy plus file/section/reference entities are capped at **1,000**; text is bounded to **256 KiB/file and 10 MiB total**. Serialized model export is capped at 14 MiB; previews can be shortened to fit and are marked accordingly. The report records truncation, unreadable files, skipped paths and unresolved references. Large repositories should be opened one subfolder at a time. GitHub may also truncate its recursive file inventory. Webpages use returned HTML/text, not a login session, rendered JavaScript application, or recursive whole-site crawl.
+Default limit: **300 files**, adjustable to **1,000**. Hierarchy plus file/symbol/section/reference entities are capped at **1,000**; text is bounded to **256 KiB/file and 10 MiB total**. Serialized model export is capped at 14 MiB; previews can be shortened to fit and are marked accordingly. The report records truncation, unreadable files, skipped paths and unresolved references. Large repositories should be opened one subfolder at a time. GitHub may also truncate its recursive file inventory. Webpages use returned HTML/text, not a login session, rendered JavaScript application, or recursive whole-site crawl.
 
 Known generated directories, version-control data and common secret filenames are excluded. Local CLI scans also apply root `.gitignore` and `.skylenseignore` patterns; nested ignore rules and every Git pattern edge case are not implemented. Browser folder selections apply the same root ignore patterns and built-in exclusions; empty directories cannot be provided by the browser file picker. Symlinks are not traversed. CLI/local-reader public requests reject private/reserved network addresses and nonstandard ports. Direct browser requests block known local address literals but cannot independently verify DNS destinations; browser and CORS restrictions also apply.
 

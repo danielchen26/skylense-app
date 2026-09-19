@@ -194,8 +194,25 @@
         for (const match of line.matchAll(/(?<!!)\[[^\]\n]*\]\(<?([^\s)>]+)>?(?:\s+["'][^)]*)?\)/g)) imports.push({ specifier: match[1], form: "markdown-link", line: index + 1, endLine: index + 1 });
       });
     } else {
-      // Comments and executable/style element contents are not navigational markup.
-      const masked = text.replace(/<!--[\s\S]*?(?:-->|$)|<(script|style)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi, (m) => m.replace(/[^\n]/g, " "));
+      // Preserve resource-bearing opening tags while masking executable/style
+      // bodies. Script data cannot manufacture tags, but an authored script src
+      // is a useful, explicit source relationship even though no code is run.
+      const blank = (value) => value.replace(/[^\n]/g, " "), pieces = [];
+      // Scan whole tags before finding raw-text bodies: a literal "<script>"
+      // inside another tag's quoted attribute is not a script element.
+      const markup = /<!--[\s\S]*?(?:-->|$)|<\/?([a-z][\w:-]*)\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi;
+      let cursor = 0, rawTag;
+      while ((rawTag = markup.exec(text))) {
+        if (rawTag[0].startsWith("<!--")) {
+          pieces.push(text.slice(cursor, rawTag.index), blank(rawTag[0])); cursor = markup.lastIndex;
+        } else if (!rawTag[0].startsWith("</") && /^(?:script|style)$/i.test(rawTag[1])) {
+          const close = new RegExp("</" + rawTag[1] + "\\s*>", "gi"); close.lastIndex = markup.lastIndex;
+          const closing = close.exec(text), end = closing ? closing.index : text.length;
+          pieces.push(text.slice(cursor, markup.lastIndex), blank(text.slice(markup.lastIndex, end)));
+          cursor = end; markup.lastIndex = closing ? close.lastIndex : text.length;
+        }
+      }
+      const masked = pieces.join("") + text.slice(cursor);
       let heading = null;
       // Match whole tags before examining attributes, so data-href and strings
       // inside other attributes cannot masquerade as an authored hyperlink.
@@ -205,12 +222,18 @@
           if (!closing) heading = { tag, start: match.index, body: match.index + match[0].length };
           else if (heading?.tag === tag) { const name = masked.slice(heading.body, match.index).replace(/<[^>]*>/g, "").trim(); if (name) symbols.push({ name, kind: "section", line: lineAt(heading.start), endLine: lineAt(match.index + match[0].length) }); heading = null; }
         }
-        if (closing || !["a", "link"].includes(tag)) continue;
+        if (closing || !["a", "link", "script"].includes(tag)) continue;
         const attributes = match[0].slice(1 + match[1].length, -1);
+        const values = new Map();
         for (const attr of attributes.matchAll(/([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g)) {
-          if (attr[1].toLowerCase() !== "href") continue;
-          imports.push({ specifier: attr[2] || attr[3] || attr[4] || "", form: "html-link", line: lineAt(match.index), endLine: lineAt(match.index + match[0].length) }); break;
+          const name = attr[1].toLowerCase();
+          // HTML keeps the first value when an attribute is duplicated.
+          if (!values.has(name)) values.set(name, attr[2] || attr[3] || attr[4] || "");
         }
+        const attribute = tag === "script" ? "src" : "href";
+        if (!values.has(attribute)) continue;
+        const form = tag === "script" ? "html-script" : tag === "link" && /(?:^|\s)stylesheet(?:\s|$)/i.test(values.get("rel") || "") ? "html-stylesheet" : "html-link";
+        imports.push({ specifier: values.get(attribute), form, line: lineAt(match.index), endLine: lineAt(match.index + match[0].length) });
       }
     }
     return { symbols, imports };
@@ -218,7 +241,7 @@
   function build(entries, options = {}) {
     if (!Array.isArray(entries)) throw new TypeError("entries must be an array of file descriptors.");
     const limits = { maxFiles: bound(options.maxFiles, LIMITS.maxFiles, 1000), maxFileBytes: bound(options.maxFileBytes, LIMITS.maxFileBytes, LIMITS.maxFileBytes), maxTotalBytes: bound(options.maxTotalBytes, LIMITS.maxTotalBytes, LIMITS.maxTotalBytes), maxEntities: LIMITS.maxEntities, maxSymbolsPerFile: LIMITS.maxSymbolsPerFile, maxSymbolsTotal: LIMITS.maxSymbolsTotal, maxEvidenceBytes: LIMITS.maxEvidenceBytes, maxSerializedBytes: LIMITS.maxSerializedBytes, maxEdges: LIMITS.maxEdges };
-    const report = { ...(options.report && typeof options.report === "object" ? options.report : {}), analyzer: "skylense-static-v1", limits, inputEntries: entries.length, acceptedFiles: 0, analyzedFiles: 0, metadataOnlyFiles: 0, textBytes: 0, truncatedFiles: 0, skipped: Array.isArray(options.report?.skipped) ? options.report.skipped.slice(0, 1000) : [], warnings: Array.isArray(options.report?.warnings) ? options.report.warnings.slice(0, 1000) : [], unresolved: [], capabilities: { hierarchy: "Filesystem structure for accepted paths", symbols: "Lexical Python and JavaScript/TypeScript declarations; HTML/Markdown headings", relationships: "Locally resolved import/link candidates only", execution: false, aiInference: false, unsupported: "Other text is previewed; binary/PDF/image/archive contents are metadata only. Dynamic imports, aliases, re-exports, runtime dispatch and arbitrary language call graphs are not resolved." } };
+    const report = { ...(options.report && typeof options.report === "object" ? options.report : {}), analyzer: "skylense-static-v2", limits, inputEntries: entries.length, acceptedFiles: 0, analyzedFiles: 0, metadataOnlyFiles: 0, textBytes: 0, truncatedFiles: 0, skipped: Array.isArray(options.report?.skipped) ? options.report.skipped.slice(0, 1000) : [], warnings: Array.isArray(options.report?.warnings) ? options.report.warnings.slice(0, 1000) : [], unresolved: [], capabilities: { hierarchy: "Filesystem and source declaration boundaries for accepted paths; Python lexical class/function nesting", symbols: "Lexical Python and JavaScript/TypeScript declarations; HTML/Markdown headings", relationships: "Included import/link/resource references and conservatively resolved Python bare-call candidates", execution: false, aiInference: false, unsupported: "Other text is previewed; binary/PDF/image/archive contents are metadata only. Literal JS dynamic imports and re-exports are supported. Computed targets, TypeScript path aliases, member dispatch, notebook cells and arbitrary-language call graphs are not resolved. Python bare calls may abstain for shadowing, ambiguity or missing sources." } };
     let symbolsUsed = 0, evidenceBytes = 0, evidenceTruncated = 0;
     const sourceLines = new Map();
     function evidence(file, text, start, end, url) {
@@ -269,9 +292,16 @@
           const lines = indexLines(text); sourceLines.set(entry.path, lines);
           node.evidence = [evidence(entry.path, text, 1, Math.min(8, lines.length), url)]; node.evidenceStatus = "source-text";
           node.summary = `${info.language || "Text"} · ${lines.length} preview lines${truncated ? " · preview truncated" : ""}`;
-          if (["python", "javascript", "typescript"].includes(info.language)) facts = codeFacts(text, info.language);
+          if (["python", "javascript", "typescript"].includes(info.language)) {
+            facts = codeFacts(text, info.language);
+            if (info.language === "python" && root.SkylensePythonStructure) {
+              facts.structure = root.SkylensePythonStructure.analyze(text);
+              facts.symbols = facts.structure.symbols;
+              if (facts.structure.truncated) report.warnings.push(`${entry.path}: Python structure extraction reached its bounded budget.`);
+            }
+          }
           else if (["html", "markdown"].includes(info.language)) facts = documentFacts(text, info.language, lines);
-          node.functions = facts.symbols.slice(0, Math.min(limits.maxSymbolsPerFile, limits.maxSymbolsTotal - symbolsUsed)).map((symbol) => ({ name: symbol.name, kind: symbol.kind, description: `Lexical ${symbol.kind} declaration at line ${symbol.line}; no runtime or type-checking claim.`, inputs: [], outputs: [], evidenceStatus: "lexical-candidate", evidence: [evidence(entry.path, text, symbol.line, symbol.endLine, url)] }));
+          node.functions = facts.symbols.slice(0, Math.min(limits.maxSymbolsPerFile, limits.maxSymbolsTotal - symbolsUsed)).map((symbol) => ({ name: symbol.name, qualifiedName: symbol.qualifiedName || symbol.name, kind: symbol.kind, description: `Lexical ${symbol.kind} declaration at line ${symbol.line}; no runtime or type-checking claim.`, inputs: [], outputs: [], evidenceStatus: "lexical-candidate", evidence: [evidence(entry.path, text, symbol.line, symbol.endLine, url)] }));
           symbolsUsed += node.functions.length;
           if (facts.symbols.length > node.functions.length) report.warnings.push(`${entry.path}: symbol preview limited by per-file (${limits.maxSymbolsPerFile}) or collection (${limits.maxSymbolsTotal}) budget.`);
           report.analyzedFiles++;
@@ -281,6 +311,38 @@
       nodes.push(node); accepted.set(entry.path, { entry, node, text, facts });
     }
     const fileMap = new Map([...accepted].filter(([, value]) => value.node));
+    // Keep file identities stable. Add source-backed symbol nodes only after
+    // inventory is complete, so a large source file cannot displace other files.
+    let navigableSymbols = 0, symbolContainers = 0, navigationCandidates = 0;
+    for (const [path, value] of fileMap) {
+      value.node.sourceRole = "file";
+      value.symbolNodes = new Map();
+      if (options.kind === "webpage") continue;
+      navigationCandidates += value.node.functions.length;
+      if (!value.node.functions.length || value.node.level >= 62 || nodes.length + hierarchy.length + 2 > limits.maxEntities) continue;
+      const fileId = id("source", path), parentId = value.node.parentId, level = value.node.level;
+      hierarchy.push({ id: fileId, label: value.node.label, kind: "container", sourceRole: "file-container", path, parentId, group: rootId, level, description: "Source file boundary · declarations are contained here; containment does not imply a call.", documentIds: [...value.node.documentIds], evidence: value.node.evidence });
+      symbolContainers++;
+      value.node.parentId = fileId; value.node.level++; value.node.label = "Source · " + value.node.label;
+      const boundaries = new Map();
+      const wantedParents = new Set(value.facts.symbols.slice(0, value.node.functions.length).map(symbol => symbol.parent).filter(parent => Number.isInteger(parent)));
+      for (let index = 0; index < value.node.functions.length; index++) {
+        const symbol = value.facts.symbols[index], preview = value.node.functions[index];
+        const parent = boundaries.get(symbol.parent) || { id: fileId, level };
+        if (parent.level >= 63 || nodes.length + hierarchy.length >= limits.maxEntities) break;
+        const symbolId = id("symbol", path + "\0" + (symbol.qualifiedName || symbol.name) + "\0" + symbol.line);
+        let symbolParent = parent.id, symbolLevel = parent.level + 1;
+        if (wantedParents.has(index) && parent.level < 62 && nodes.length + hierarchy.length + 2 <= limits.maxEntities) {
+          const boundary = { id: id("scope", symbolId), label: symbol.name, kind: "container", sourceRole: "symbol-container", path, qualifiedName: preview.qualifiedName, parentId: parent.id, group: rootId, level: symbolLevel, description: `Lexical ${symbol.kind} scope · ${preview.qualifiedName}`, documentIds: [...value.node.documentIds], evidence: preview.evidence };
+          hierarchy.push(boundary); boundaries.set(index, boundary); symbolContainers++; symbolParent = boundary.id; symbolLevel++;
+        }
+        const bodyEnd = Math.max(symbol.endLine, Math.min(symbol.bodyEndLine || symbol.endLine, symbol.line + 31));
+        nodes.push({ id: symbolId, label: symbol.name, qualifiedName: preview.qualifiedName, path, kind: symbol.kind === "section" ? "document" : ["class", "function", "interface"].includes(symbol.kind) ? symbol.kind : "schema", sourceRole: "symbol", parentId: symbolParent, group: rootId, level: symbolLevel, summary: `${preview.qualifiedName} · ${symbol.kind} · lines ${symbol.line}–${symbol.bodyEndLine || symbol.endLine}. Static source declaration; not a runtime trace.`, functions: [], inputs: [], outputs: [], documentIds: [...value.node.documentIds], evidenceStatus: "source-text", evidence: [evidence(path, value.text, symbol.line, bodyEnd, safeUrl(value.entry.url))], sourceSpan: { lineStart: symbol.line, lineEnd: symbol.bodyEndLine || symbol.endLine }, ...(value.node.url ? { url: value.node.url } : {}) });
+        preview.nodeId = symbolId; value.symbolNodes.set(index, symbolId); navigableSymbols++;
+      }
+    }
+    report.navigableSymbols = navigableSymbols; report.symbolContainers = symbolContainers;
+    if (navigableSymbols < navigationCandidates) report.warnings.push("Some symbol navigation nodes were limited by the hierarchy entity or depth budget; declaration previews are retained.");
     const urlMap = new Map(); for (const [path, value] of fileMap) { const url = safeUrl(value.entry.url); if (url) { const u = new URL(url); u.hash = ""; urlMap.set(u.href, path); } }
     function choose(candidates) { const matches = [...new Set(candidates.filter((path) => path && fileMap.has(path)))]; return matches.length === 1 ? { targets: matches } : { targets: [], reason: matches.length > 1 ? "Ambiguous local resolution" : "External, unavailable, excluded or unresolved target" }; }
     function resolve(path, fact, entry) {
@@ -298,7 +360,7 @@
         }
         return direct;
       }
-      if (["html-link", "markdown-link"].includes(fact.form)) {
+      if (["html-link", "html-script", "html-stylesheet", "markdown-link"].includes(fact.form)) {
         if (!spec || spec.startsWith("#") || /^(?:javascript|data|mailto|tel):/i.test(spec)) return { targets: [], ignored: true };
         if (entry.url) { try { const u = new URL(spec.replace(/&amp;/g, "&"), entry.url); u.hash = ""; if (!["http:", "https:"].includes(u.protocol)) return { targets: [], ignored: true }; if (urlMap.has(u.href)) return { targets: [urlMap.get(u.href)] }; if (/^[a-z][\w+.-]*:/i.test(spec) || spec.startsWith("/")) return { targets: [], reason: "Linked URL was not included in this bounded collection" }; } catch { return { targets: [], reason: "Invalid link URL" }; } }
         let clean; try { clean = decodeURIComponent(spec.split(/[?#]/)[0]); } catch { return { targets: [], reason: "Invalid encoded link" }; }
@@ -317,10 +379,35 @@
       if (!resolution.targets.length) { if (report.unresolved.length < 1000) report.unresolved.push({ file: path, line: fact.line, specifier: fact.specifier.slice(0, 256), reason: resolution.reason }); continue; }
       for (const target of resolution.targets) {
         if (edges.length >= limits.maxEdges) { edgeCap = true; break; }
-        const type = fact.form.endsWith("link") ? "links" : "imports";
+        const type = ["html-script", "html-stylesheet"].includes(fact.form) ? "loads" : fact.form.endsWith("link") ? "links" : "imports";
         edges.push({ id: id("edge", path + "\0" + fact.line + "\0" + fact.form + "\0" + fact.specifier + "\0" + target + "\0" + edges.length), source: value.node.id, target: fileMap.get(target).node.id, type, label: fact.specifier.slice(0, 240), evidenceStatus: "lexical-candidate", description: `${fact.form}: literal source reference resolves to an included local file. This is a lexical dependency candidate, not a verified execution, call or runtime flow.`, evidence: [evidence(path, value.text, fact.line, fact.endLine, safeUrl(value.entry.url))] });
       }
     }
+    let callCandidates = 0, unresolvedCalls = 0;
+    for (const [path, value] of fileMap) for (const call of value.facts.structure?.calls || []) {
+      const from = call.owner === null ? value.node.id : value.symbolNodes.get(call.owner);
+      let target;
+      if (call.resolution.kind === "local") target = value.symbolNodes.get(call.resolution.symbol);
+      else if (call.resolution.kind === "import") {
+        const reference = call.resolution;
+        const resolved = resolve(path, { form: "python-from", specifier: reference.module, names: [] }, value.entry);
+        if (resolved.targets.length === 1) {
+          const other = fileMap.get(resolved.targets[0]);
+          const index = other.facts.structure?.callableExports?.[reference.name];
+          if (Number.isInteger(index)) target = other.symbolNodes.get(index);
+        }
+      }
+      if (!from || !target) {
+        unresolvedCalls++;
+        if (report.unresolved.length < 1000) report.unresolved.push({ file: path, line: call.line, specifier: call.name, kind: "call", reason: call.resolution.reason || "Call target is outside the supported, unique included declaration set or navigation budget" });
+        continue;
+      }
+      if (edges.length >= limits.maxEdges) { edgeCap = true; break; }
+      const targetNode = nodes.find(node => node.id === target), type = targetNode?.kind === "class" ? "constructs" : "calls";
+      edges.push({ id: id("edge", path + "\0call\0" + call.line + "\0" + call.name + "\0" + edges.length), source: from, target, type, label: call.name + "()", evidenceStatus: "lexical-candidate", description: "A bare Python call expression resolves lexically to this unique included declaration. Decorators, rebinding and runtime behavior are not verified; this is not an observed execution or ordering claim.", evidence: [evidence(path, value.text, call.line, call.endLine, safeUrl(value.entry.url))] });
+      callCandidates++;
+    }
+    report.callCandidates = callCandidates; report.unresolvedCalls = unresolvedCalls;
     if (options.kind === "webpage") {
       let headingCount = 0, referenceCount = 0;
       for (const [path, value] of fileMap) {
@@ -337,6 +424,7 @@
         for (const fact of value.facts.imports) {
           const resolution = resolve(path, fact, value.entry);
           if (resolution.ignored || resolution.targets.length) continue;
+          const resource = ["html-script", "html-stylesheet"].includes(fact.form);
           let targetUrl;
           try { targetUrl = safeUrl(new URL(fact.specifier.replace(/&amp;/g, "&"), value.entry.url || options.url).href); } catch { targetUrl = null; }
           if (!targetUrl) continue;
@@ -345,9 +433,9 @@
             if (referenceCount >= 40 || nodes.length + hierarchy.length >= limits.maxEntities) break;
             target = id("reference", path + "\0" + targetUrl); references.set(targetUrl, target);
             const parsed = new URL(targetUrl);
-            nodes.push({ id: target, label: (parsed.hostname + parsed.pathname).slice(0, 180), path: targetUrl, url: targetUrl, kind: "external", group: rootId, parentId: pageId, level: value.node.level, summary: "Unfetched hyperlink reference · target contents were not inspected", status: "unfetched-reference", evidenceStatus: "unfetched-reference", documentIds: [...value.node.documentIds], functions: [], inputs: [], outputs: [], evidence: [evidence(path, value.text, fact.line, fact.endLine, safeUrl(value.entry.url))] }); referenceCount++;
+            nodes.push({ id: target, label: (parsed.hostname + parsed.pathname).slice(0, 180), path: targetUrl, url: targetUrl, kind: "external", group: rootId, parentId: pageId, level: value.node.level, summary: `Unfetched ${resource ? "resource" : "hyperlink"} reference · target contents were not inspected`, status: "unfetched-reference", evidenceStatus: "unfetched-reference", documentIds: [...value.node.documentIds], functions: [], inputs: [], outputs: [], evidence: [evidence(path, value.text, fact.line, fact.endLine, safeUrl(value.entry.url))] }); referenceCount++;
           }
-          if (edges.length < limits.maxEdges) edges.push({ id: id("edge", path + "\0hyperlink\0" + fact.line + "\0" + targetUrl + "\0" + edges.length), source: value.node.id, target, type: "links", label: "hyperlink · " + fact.specifier.slice(0, 240), evidenceStatus: "source-text", description: "The collected source contains this authored hyperlink. The target was not fetched; the link does not establish a code dependency or execution relationship.", evidence: [evidence(path, value.text, fact.line, fact.endLine, safeUrl(value.entry.url))] });
+          if (edges.length < limits.maxEdges) edges.push({ id: id("edge", path + (resource ? "\0resource\0" : "\0hyperlink\0") + fact.line + "\0" + targetUrl + "\0" + edges.length), source: value.node.id, target, type: resource ? "loads" : "links", label: (resource ? "resource · " : "hyperlink · ") + fact.specifier.slice(0, 240), evidenceStatus: "source-text", description: resource ? "The collected source contains this authored resource attribute. The target was not fetched; this does not establish successful loading or code execution." : "The collected source contains this authored hyperlink. The target was not fetched; the link does not establish a code dependency or execution relationship.", evidence: [evidence(path, value.text, fact.line, fact.endLine, safeUrl(value.entry.url))] });
         }
       }
       report.pageSections = headingCount; report.unfetchedReferences = referenceCount;
@@ -358,10 +446,10 @@
     report.evidenceBytes = evidenceBytes; report.truncatedExcerpts = evidenceTruncated;
     if (evidenceTruncated) report.warnings.push("Some excerpts are partial because of preview budgets; bounded source previews remain in documents.");
     report.truncated = Boolean(evidenceTruncated || symbolsUsed >= limits.maxSymbolsTotal || options.report?.truncated || report.truncatedFiles || report.warnings.some(item => typeof item === "string" && /limited|budget/i.test(item)) || report.skipped.some(item => /limit|budget/i.test(item.reason || "")) || edgeCap);
-    report.acceptedFiles = fileCount; report.directories = hierarchy.length - 1; report.relationships = edges.length; report.symbols = nodes.reduce((sum, node) => sum + (node.functions?.length || 0), 0);
+    report.acceptedFiles = fileCount; report.directories = directoryIds.size - 1; report.relationships = edges.length; report.symbols = symbolsUsed;
     const source = typeof options.source === "string" ? options.source : options.kind || "folder";
     const revision = typeof options.revision === "string" ? options.revision : hash([...fileMap].map(([path, file]) => path + "\0" + (file.text === null ? file.node.size : hash(file.text))).join("\n"));
-    const model = { meta: { id: "ingest_" + hash(source + "\0" + title), title, description: "Automatically collected source hierarchy and bounded static reference analysis.", version: 1, source, revision, sourceFolder: title, ...(safeUrl(options.url) ? { repository: safeUrl(options.url) } : {}), evidenceNote: "Automatically analyzed source text. Imports and hyperlinks are lexical candidates resolved against included files; no code was executed, no call graph or runtime flow is inferred. Excerpts may be partial when preview budgets are reached; bounded source previews are available in documents. Preview limits, skipped files and unresolved references are recorded in the ingestion report.", defaultScope: "system", defaultOpen: [], ingestion: report, count: { groups: 1, containers: hierarchy.length, nodes: nodes.length, edges: edges.length, functions: report.symbols, documents: documents.length } }, groups: [group], hierarchy, nodes, edges, flows: [], documents };
+    const model = { meta: { id: "ingest_" + hash(source + "\0" + title), title, description: "Automatically collected source hierarchy and bounded static reference analysis.", version: 1, source, revision, sourceFolder: title, ...(safeUrl(options.url) ? { repository: safeUrl(options.url) } : {}), evidenceNote: "Automatically analyzed source text. Imports and hyperlinks are lexical candidates resolved against included files; Python bare-call edges are lexical candidates, not a complete call graph. No code was executed and no runtime flow is inferred. Excerpts may be partial when preview budgets are reached; bounded source previews are available in documents. Preview limits, skipped files and unresolved references are recorded in the ingestion report.", defaultScope: "system", defaultOpen: [], ingestion: report, count: { groups: 1, containers: hierarchy.length, nodes: nodes.length, edges: edges.length, functions: report.symbols, documents: documents.length } }, groups: [group], hierarchy, nodes, edges, flows: [], documents };
     // Escaped JSON can be much larger than UTF-8 source text (for example logs
     // containing backslashes or control characters). Cap the actual pretty JSON
     // used by CLI/browser exports, keeping every graph identity and relationship.
