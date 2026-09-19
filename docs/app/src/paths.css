@@ -1,0 +1,70 @@
+/* Path explorer: compact route controls, source-faithful relationship steps. */
+dialog.path-dialog { width: min(820px, calc(100vw - 32px)); max-width: 820px; }
+.path-dialog .modal-header { position: sticky; top: 0; z-index: 3; background: var(--panel); }
+.path-intro { color: var(--muted); line-height: 1.7; margin: 0 0 20px; }
+.path-stops { display: grid; gap: 10px; }
+.path-stop { display: flex; align-items: center; gap: 12px; position: relative; }
+.path-stop:not(:last-child)::after { content: ""; position: absolute; top: 38px; left: 14px; bottom: -15px; width: 1px; background: var(--line); }
+.path-stop-marker, .path-number { display: inline-grid; place-items: center; flex: 0 0 auto; width: 29px; height: 29px; border: 1px solid var(--line); background: var(--soft); border-radius: 50%; font-size: 11px; font-weight: 700; color: var(--accent); }
+.path-stop label { flex: 1; min-width: 0; margin: 0; font-size: 11px; color: var(--muted); }
+.path-stop select { margin-top: 5px; width: 100%; min-width: 0; }
+.path-stop-actions { display: flex; align-items: center; padding-top: 17px; gap: 2px; }
+.path-stop-actions .icon-btn { width: 30px; height: 34px; font-size: 17px; }
+.path-edit-actions { display: flex; flex-wrap: wrap; gap: 7px; margin: 16px 0 20px 41px; }
+.path-edit-actions .btn { font-size: 11px; min-height: 34px; }
+.path-options { display: grid; grid-template-columns: 1.5fr 1fr; gap: 16px; padding-top: 18px; border-top: 1px solid var(--line); }
+.path-options label { font-size: 11px; color: var(--muted); margin: 0; }
+.path-options input, .path-options select { width: 100%; margin-top: 6px; min-height: 38px; }
+.path-types { border: 0; padding: 0; margin: 18px 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.path-types legend { font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 9px; padding: 0; }
+.path-types label { display: flex; align-items: center; gap: 6px; padding: 7px 9px; margin: 0; border: 1px solid var(--line); border-radius: 7px; font-size: 11px; background: var(--panel); cursor: pointer; }
+.path-types label:has(input:checked) { background: var(--soft); border-color: var(--muted); }
+.path-types input { width: 14px; height: 14px; margin: 0; accent-color: var(--accent); }
+.path-types small { color: var(--muted); font-size: 9px; }
+.path-type-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ink, var(--accent)); }
+.path-search-actions { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 16px 0; border-top: 1px solid var(--line); }
+.path-search-actions small { font-size: 10px; color: var(--muted); line-height: 1.7; max-width: 350px; }
+.path-search-actions .btn { flex: 0 0 auto; }
+.path-empty { border: 1px dashed var(--line); padding: 20px; border-radius: 10px; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.path-error { padding: 15px; background: var(--soft); border-left: 3px solid var(--accent); border-radius: 6px; }
+.path-error p, .path-error small { line-height: 1.7; color: var(--muted); }
+.path-error p { font-size: 12px; }
+.path-error small { font-size: 11px; }
+.path-result-heading { display: flex; justify-content: space-between; gap: 15px; margin: 12px 0; font-size: 12px; }
+.path-result-heading span { font-size: 10px; color: var(--muted); }
+.path-candidate { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; margin-top: 12px; }
+.path-candidate-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--soft); padding: 14px; }
+.path-candidate-top b { display: block; font-size: 13px; }
+.path-candidate-top span { display: block; color: var(--muted); font-size: 10px; margin-top: 5px; }
+.path-candidate-top .btn { flex: 0 0 auto; font-size: 11px; }
+.path-segment { padding: 0 14px; border-top: 1px solid var(--line); }
+.path-segment summary { cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 12px 0; font-size: 11px; }
+.path-segment summary > span:nth-child(2) { flex: 1; overflow-wrap: anywhere; }
+.path-segment summary small { flex: 0 0 auto; color: var(--muted); }
+.path-number { width: 21px; height: 21px; font-size: 9px; }
+.path-steps { margin: 0 0 6px 10px; padding: 0 0 0 20px; list-style: none; border-left: 1px solid var(--line); }
+.path-steps li { position: relative; margin-bottom: 15px; }
+.path-steps li::before { content: ""; width: 6px; height: 6px; background: var(--muted); border: 3px solid var(--panel); position: absolute; left: -26px; top: 3px; border-radius: 50%; }
+.path-step-label { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.path-step-label code { color: var(--muted); font-size: 9px; margin-left: auto; }
+.path-type { font-size: 9px; font-weight: 650; color: var(--ink, var(--accent)); }
+.path-reverse { font-size: 9px; padding: 2px 5px; border: 1px solid var(--line); border-radius: 4px; color: var(--text); }
+.path-steps strong { font-size: 11px; display: block; margin: 6px 0; overflow-wrap: anywhere; }
+.path-steps p { margin: 0; font-size: 10px; color: var(--muted); line-height: 1.6; overflow-wrap: anywhere; }
+.path-steps small, .path-zero, .path-warning { font-size: 10px; color: var(--muted); line-height: 1.6; }
+.path-zero { padding: 0 0 12px 29px; margin: 0; }
+.path-dialog :focus-visible { outline: 2px solid var(--focus, var(--accent)); outline-offset: 3px; }
+@media (max-width: 560px) {
+  dialog.path-dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 24px); }
+  .path-dialog .modal-content { padding: 16px; }
+  .path-stop { gap: 8px; flex-wrap: wrap; }
+  .path-stop label { width: calc(100% - 40px); flex: 1 1 calc(100% - 40px); }
+  .path-stop-actions { padding: 0; margin-left: 37px; }
+  .path-stop-actions .icon-btn { width: 44px; height: 44px; }
+  .path-edit-actions { margin-left: 0; }
+  .path-options { grid-template-columns: 1fr; gap: 12px; }
+  .path-search-actions, .path-result-heading { align-items: flex-start; flex-direction: column; gap: 9px; }
+  .path-search-actions .btn { width: 100%; justify-content: center; }
+  .path-candidate-top { align-items: flex-start; flex-direction: column; }
+  .path-candidate-top .btn { width: 100%; justify-content: center; }
+}

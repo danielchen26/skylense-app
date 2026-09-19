@@ -1,0 +1,26 @@
+name: Report a bug or confusing connection
+description: Help make the next reading path clearer.
+title: "[Feedback] "
+body:
+  - type: markdown
+    attributes:
+      value: "Thank you for trying Skylense. Please use public example data; avoid posting private source, credentials, or model files."
+  - type: input
+    id: version
+    attributes:
+      label: Version and surface
+      placeholder: "0.2 preview · Web / Terminal / MCP"
+    validations:
+      required: true
+  - type: input
+    id: example
+    attributes:
+      label: Example and selected object
+      placeholder: "autoresearch · AR_train"
+  - type: textarea
+    id: behavior
+    attributes:
+      label: What did you expect, and what happened?
+      description: Include the steps to reproduce, browser or Node version, and a public-example screenshot if useful.
+    validations:
+      required: true

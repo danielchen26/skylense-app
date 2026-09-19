@@ -1,0 +1,393 @@
+/* Theme values mirror themes.js; load after style.css. */
+html[data-theme="porcelain"],
+html[data-theme="porcelain"] body {
+  color-scheme: light;
+  --bg: #F5F7FA;
+  --panel: #FFFFFF;
+  --soft: #EDF1F6;
+  --line: #D4DCE6;
+  --text: #202D40;
+  --muted: #536174;
+  --accent: #2456A6;
+  --active: #E7EFFB;
+  --node: #FFFFFF;
+  --edge: #728299;
+  --accent-text: #FFFFFF;
+  --grid: #CBD4E1;
+  --focus: #2456A6;
+  --tooltip: #202D40;
+  --tooltip-text: #FFFFFF;
+  --overlay: #15223866;
+  --radius: 8px;
+  --radius-small: 5px;
+  --radius-card: 12px;
+  --font: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+  --title-font: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+  --shadow: 0 14px 44px #20314F14;
+  --shadow-small: 0 2px 8px #20314F0A;
+  --canvas-step: 20px;
+}
+
+html[data-theme="jade"],
+html[data-theme="jade"] body {
+  color-scheme: light;
+  --bg: #F2F8F5;
+  --panel: #FCFFFD;
+  --soft: #E8F2ED;
+  --line: #CDDED5;
+  --text: #20372D;
+  --muted: #506A5D;
+  --accent: #176B4E;
+  --active: #DEF0E6;
+  --node: #FCFFFD;
+  --edge: #708F7E;
+  --accent-text: #FFFFFF;
+  --grid: #C4D9CE;
+  --focus: #176B4E;
+  --tooltip: #20372D;
+  --tooltip-text: #FCFFFD;
+  --overlay: #142E2266;
+  --radius: 10px;
+  --radius-small: 6px;
+  --radius-card: 15px;
+  --font: "Avenir Next", Avenir, -apple-system, "Segoe UI", "PingFang SC", sans-serif;
+  --title-font: "Avenir Next", Avenir, -apple-system, "Segoe UI", "PingFang SC", sans-serif;
+  --shadow: 0 14px 44px #1C4D3614;
+  --shadow-small: 0 2px 8px #1C4D360A;
+  --canvas-step: 22px;
+}
+
+html[data-theme="sandstone"],
+html[data-theme="sandstone"] body {
+  color-scheme: light;
+  --bg: #FAF6EF;
+  --panel: #FFFDF9;
+  --soft: #F3ECE2;
+  --line: #DDD0BF;
+  --text: #3D3027;
+  --muted: #705C4C;
+  --accent: #875226;
+  --active: #F3E7D4;
+  --node: #FFFDF9;
+  --edge: #97816B;
+  --accent-text: #FFFFFF;
+  --grid: #DFD1C0;
+  --focus: #875226;
+  --tooltip: #3D3027;
+  --tooltip-text: #FFFDF9;
+  --overlay: #34251A66;
+  --radius: 7px;
+  --radius-small: 4px;
+  --radius-card: 10px;
+  --font: "Avenir Next", Avenir, -apple-system, "Segoe UI", "PingFang SC", sans-serif;
+  --title-font: Charter, "Iowan Old Style", "Noto Serif SC", "Songti SC", Georgia, serif;
+  --shadow: 0 14px 44px #60432214;
+  --shadow-small: 0 2px 8px #6043220C;
+  --canvas-step: 24px;
+}
+
+html[data-theme="midnight"],
+html[data-theme="midnight"] body {
+  color-scheme: dark;
+  --bg: #101827;
+  --panel: #172235;
+  --soft: #213047;
+  --line: #354760;
+  --text: #EAF0FA;
+  --muted: #ADBCD1;
+  --accent: #9FC5FF;
+  --active: #263E5E;
+  --node: #1B293E;
+  --edge: #6D819D;
+  --accent-text: #13233B;
+  --grid: #2E4059;
+  --focus: #B8D5FF;
+  --tooltip: #EAF0FA;
+  --tooltip-text: #172235;
+  --overlay: #040B16A6;
+  --radius: 8px;
+  --radius-small: 5px;
+  --radius-card: 11px;
+  --font: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+  --title-font: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+  --shadow: 0 16px 48px #02081559;
+  --shadow-small: 0 2px 9px #0208152E;
+  --canvas-step: 20px;
+}
+
+html[data-theme="graphite"],
+html[data-theme="graphite"] body {
+  color-scheme: dark;
+  --bg: #18191B;
+  --panel: #222427;
+  --soft: #2D3034;
+  --line: #464B52;
+  --text: #F1F2F4;
+  --muted: #B8BEC8;
+  --accent: #C5D2E5;
+  --active: #363E4A;
+  --node: #272A2E;
+  --edge: #858E9C;
+  --accent-text: #242B35;
+  --grid: #3D4249;
+  --focus: #D2DFF4;
+  --tooltip: #F1F2F4;
+  --tooltip-text: #222427;
+  --overlay: #090A0BB3;
+  --radius: 5px;
+  --radius-small: 3px;
+  --radius-card: 7px;
+  --font: "IBM Plex Sans", Inter, -apple-system, "Segoe UI", "PingFang SC", sans-serif;
+  --title-font: "IBM Plex Sans", Inter, -apple-system, "Segoe UI", "PingFang SC", sans-serif;
+  --shadow: 0 12px 36px #0000004D;
+  --shadow-small: 0 2px 6px #00000026;
+  --canvas-step: 18px;
+}
+
+html[data-theme="aurora"],
+html[data-theme="aurora"] body {
+  color-scheme: dark;
+  --bg: #1A1528;
+  --panel: #251E37;
+  --soft: #332A49;
+  --line: #4F4268;
+  --text: #F3EEFC;
+  --muted: #C1B4D8;
+  --accent: #D2B7FF;
+  --active: #403055;
+  --node: #2B2340;
+  --edge: #9683B1;
+  --accent-text: #2A1844;
+  --grid: #413354;
+  --focus: #E0CDFF;
+  --tooltip: #F3EEFC;
+  --tooltip-text: #251E37;
+  --overlay: #0C061AB3;
+  --radius: 11px;
+  --radius-small: 7px;
+  --radius-card: 16px;
+  --font: "Avenir Next", Avenir, -apple-system, "Segoe UI", "PingFang SC", sans-serif;
+  --title-font: "Avenir Next", Avenir, -apple-system, "Segoe UI", "PingFang SC", sans-serif;
+  --shadow: 0 16px 48px #08021366;
+  --shadow-small: 0 2px 9px #08021333;
+  --canvas-step: 22px;
+}
+
+/* Surfaces use opaque tokens so contrast stays predictable while navigating. */
+html[data-theme],
+html[data-theme] body {
+  color: var(--text);
+  background: var(--bg);
+  font-family: var(--font);
+  accent-color: var(--accent);
+  scrollbar-color: var(--edge) var(--soft);
+}
+html[data-theme] :is(.app-header, .sidebar, .inspector, .canvas-toolbar,
+  .structure-toolbar, .level-rail, .semantic-legend, .statusbar, .modal-header) {
+  background: var(--panel);
+  border-color: var(--line);
+}
+html[data-theme] :is(.canvas-header, .main) { background: var(--bg); }
+html[data-theme] .canvas {
+  background-color: var(--bg);
+  background-image: radial-gradient(var(--grid) 0.7px, transparent 0.7px);
+  background-size: var(--canvas-step) var(--canvas-step);
+}
+html[data-theme] :is(.page-title h1, .modal-header h2) {
+  font-family: var(--title-font);
+}
+html[data-theme] :is(.brand, .page-title h1) { color: var(--text); }
+html[data-theme] .brand-mark {
+  background: var(--accent);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-small);
+}
+html[data-theme] .brand-mark svg > rect { fill: var(--accent); }
+html[data-theme] .brand-mark svg [stroke="white"] { stroke: var(--accent-text); }
+html[data-theme] .brand-mark svg circle[fill="white"],
+html[data-theme] .brand-mark i { fill: var(--accent-text); background: var(--accent-text); }
+html[data-theme] :is(.project-dot, .live-dot) { background: var(--accent); }
+html[data-theme] :is(.btn, .segmented, .canvas-controls, .minimap, .project-card,
+  .example-select, .toolbar-select, .level-peers, .export-option, .search-box) {
+  border-radius: var(--radius);
+}
+html[data-theme] :is(.icon-btn, .segmented button, .badge, .type-badge,
+  .category-badge, .level-options button, .display-options button, .node-icon) {
+  border-radius: var(--radius-small);
+}
+html[data-theme] :is(button, a, input, select):focus-visible {
+  outline-color: var(--focus);
+}
+html[data-theme] :is(.btn.primary, .btn.primary:hover) {
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: var(--accent);
+  filter: none;
+}
+html[data-theme] .btn.primary:hover { box-shadow: 0 0 0 3px var(--active); }
+html[data-theme] :is(.modal-content input, .modal-content select, .search-box input,
+  .toolbar-select, .example-select) {
+  color: var(--text);
+  border-color: var(--line);
+}
+html[data-theme] input::placeholder { color: var(--muted); opacity: 1; }
+html[data-theme] :is(.graph-node, .project-card, .function-card, .evidence-card,
+  .endpoint-card, .context-card, .compare-float) {
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-small);
+}
+html[data-theme] .node-wrap .graph-node {
+  background: var(--node);
+  color: var(--text);
+}
+html[data-theme] .node-wrap.is-boundary .graph-node {
+  background: color-mix(in srgb, var(--tone) 4%, var(--node));
+}
+html[data-theme] .node-wrap .graph-node:hover { box-shadow: var(--shadow); }
+html[data-theme] .node-wrap .graph-node.selected {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 22%, transparent), var(--shadow-small);
+}
+html[data-theme] .node-wrap .graph-node.level-peer:not(.selected) {
+  background: color-mix(in srgb, var(--accent) 4%, var(--node));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+html[data-theme] .node-wrap.focus-muted .graph-node.level-peer {
+  background: var(--node);
+  box-shadow: var(--shadow-small);
+}
+html[data-theme] :is(.group-boundary, .category-frame) { border-radius: var(--radius-card); }
+html[data-theme] .group-boundary.nested-boundary {
+  background: color-mix(in srgb, var(--panel) 40%, transparent);
+  border-color: color-mix(in srgb, var(--muted) 40%, transparent);
+}
+html[data-theme] .group-boundary.level-peer-boundary {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 3%, transparent);
+}
+/* Full-strength labels and readable strokes; contextual fading is still applied by its parent. */
+html[data-theme] .relation-wire .edge { opacity: 0.92; }
+html[data-theme] .relation-wire:is(.active, :hover) .edge { opacity: 1; }
+html[data-theme] .relation-hub { background: var(--panel); }
+html[data-theme] .relation-hub.selected {
+  background: color-mix(in srgb, var(--ink) 7%, var(--panel));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ink) 20%, transparent);
+}
+html[data-theme] :is(.minimap, .canvas-controls, .canvas-note, .compare-float) {
+  background: var(--panel);
+  border-color: var(--line);
+  box-shadow: var(--shadow-small);
+}
+html[data-theme] :is(.segmented button.active, .lens-switch button.active) {
+  color: var(--accent);
+  background: var(--active);
+  box-shadow: var(--shadow-small);
+}
+html[data-theme] #peek {
+  color: var(--text);
+  background: var(--panel);
+  border-color: var(--line);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow);
+}
+html[data-theme] #toast {
+  color: var(--tooltip-text);
+  background: var(--tooltip);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+html[data-theme] dialog {
+  color: var(--text);
+  background: var(--panel);
+  border-color: var(--line);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow);
+}
+html[data-theme] dialog::backdrop { background: var(--overlay); }
+html[data-theme] :is(.inspector.open, .sidebar.open) { box-shadow: var(--shadow); }
+html[data-theme] .story-strip { background: var(--active); }
+html[data-theme] .level-options small { opacity: 1; }
+/* Warm paper needs an untinted badge surface for the amber schema label. */
+html[data-theme="sandstone"] .category-badge { background: var(--panel); }
+
+/* Context is quieter through surfaces and borders, never unreadable text. */
+html[data-theme] :is(.node-wrap, .tree-select, .group-boundary, .category-frame,
+  .relation-hub).focus-muted {
+  opacity: 1;
+  filter: none;
+}
+html[data-theme] .node-wrap.focus-muted .graph-node:not(.selected) {
+  opacity: 1;
+  color: var(--muted);
+  background: var(--soft);
+  border-color: var(--line);
+  box-shadow: none;
+}
+html[data-theme] .node-wrap.focus-muted :is(.node-kind, .node-icon) {
+  color: var(--muted);
+  background: transparent;
+  text-decoration: none;
+}
+html[data-theme] .node-wrap.focus-muted:hover .graph-node,
+html[data-theme] .node-wrap.focus-muted:focus-within .graph-node {
+  background: var(--panel);
+  border-color: var(--muted);
+}
+html[data-theme] .tree-select.focus-muted {
+  color: var(--muted);
+  background: transparent;
+  box-shadow: none;
+}
+html[data-theme] .tree-select.focus-muted :is(.name, .tree-level) {
+  color: var(--muted);
+  background: transparent;
+  font-weight: 400;
+}
+html[data-theme] .tree-select.focus-muted:hover,
+html[data-theme] .tree-select.focus-muted:focus-visible { background: var(--soft); }
+html[data-theme] :is(.group-boundary, .category-frame).focus-muted {
+  background: transparent;
+  border-color: var(--line);
+  box-shadow: none;
+}
+html[data-theme] .group-boundary.focus-muted .boundary-title,
+html[data-theme] .category-frame.focus-muted .category-heading {
+  color: var(--muted);
+  background: var(--bg);
+  box-shadow: none;
+}
+html[data-theme] .category-frame.focus-muted .category-heading b {
+  background: var(--panel);
+}
+html[data-theme] .relation-hub.focus-muted {
+  color: var(--muted);
+  background: var(--soft);
+  border-color: var(--line);
+  box-shadow: none;
+}
+html[data-theme] .relation-hub.focus-muted .member-count {
+  color: var(--muted);
+  background: var(--panel);
+}
+html[data-theme] .relation-hub.focus-muted:hover,
+html[data-theme] .relation-hub.focus-muted:focus-visible {
+  background: var(--panel);
+  border-color: var(--muted);
+}
+
+/* Gallery layout and --sample-* previews belong to style.css. */
+.theme-card:hover { border-color: var(--accent); background: var(--panel); }
+/* A preview is a miniature canvas, not a 17px toolbar icon. */
+.theme-gallery .theme-card { display: flex; flex-direction: column; align-items: stretch; }
+.theme-gallery .theme-preview { flex-shrink: 0; }
+.theme-gallery .theme-preview > svg { flex: 1 1 0; width: 0; min-width: 0; height: 100%; }
+@media (max-width: 620px) {
+  html[data-theme] .app-header .header-actions { gap: 4px; }
+  html[data-theme] .app-header .header-actions :is(.present-toggle, .connect-toggle) {
+    font-size: 0;
+    gap: 0;
+    padding: 7px;
+  }
+}
+@media (max-width: 380px) {
+  html[data-theme] .app-header .brand { font-size: 0; gap: 0; }
+}

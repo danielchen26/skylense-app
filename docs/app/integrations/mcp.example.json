@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "skylense": {
+      "command": "/absolute/path/to/node",
+      "args": ["/absolute/path/to/skylense/server/mcp.mjs"]
+    }
+  }
+}

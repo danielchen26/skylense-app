@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%20fill%3D%22none%22%3E%0A%20%20%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2216%22%20fill%3D%22%231f7859%22%2F%3E%0A%20%20%3Cpath%20d%3D%22M10%2032C15%2021%2023%2015%2032%2015C41%2015%2049%2021%2054%2032C49%2043%2041%2049%2032%2049C23%2049%2015%2043%2010%2032Z%22%20stroke%3D%22white%22%20stroke-width%3D%223%22%2F%3E%0A%20%20%3Ccircle%20cx%3D%2232%22%20cy%3D%2232%22%20r%3D%2211%22%20stroke%3D%22white%22%20stroke-width%3D%223%22%2F%3E%0A%20%20%3Cpath%20d%3D%22M24%2032H40M32%2024V40%22%20stroke%3D%22white%22%20stroke-width%3D%222%22%2F%3E%0A%20%20%3Ccircle%20cx%3D%2232%22%20cy%3D%2232%22%20r%3D%224%22%20fill%3D%22white%22%2F%3E%0A%3C%2Fsvg%3E%0A"
+    />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="application-name" content="Skylense" />
+    <meta name="theme-color" content="#1f7859" />
+    <meta
+      name="description"
+      content="Skylense turns code architecture into an interactive map: explore every layer, follow every connection, and preview the details."
+    />
+    <title>Skylense · Interactive Codebase Explorer</title>
+    <link rel="stylesheet" href="src/style.css" />
+    <link rel="stylesheet" href="src/themes.css" />
+    <link rel="stylesheet" href="src/paths.css" />
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="peek" role="tooltip" hidden></div>
+    <div id="toast" role="status" aria-live="polite"></div>
+    <dialog id="modal" aria-labelledby="modal-title"></dialog>
+    <input
+      id="import-file"
+      type="file"
+      accept="application/json,.json"
+      hidden
+    />
+    <script src="src/model.js"></script>
+    <script src="src/examples.js"></script>
+    <script src="src/graph.js"></script>
+    <script src="src/relations.js"></script>
+    <script src="src/orthogonal.js"></script>
+    <script src="src/scene.js"></script>
+    <script src="src/semantics.js"></script>
+    <script src="src/context.js"></script>
+    <script src="src/levels.js"></script>
+    <script src="src/motion.js"></script>
+    <script src="src/focus.js"></script>
+    <script src="src/themes.js"></script>
+    <script src="src/paths.js"></script>
+    <script src="src/app.js"></script>
+  </body>
+</html>
