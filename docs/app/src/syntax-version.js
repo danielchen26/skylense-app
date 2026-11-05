@@ -1,1 +1,1 @@
-globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8d36d46debcc90619978cfb4";
+globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";

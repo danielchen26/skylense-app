@@ -439,6 +439,27 @@ kbd {
 .guide-reader select { flex: 1; width: 0; min-width: 70px; padding: 7px; border: 1px solid var(--line); border-radius: 5px; color: var(--text); background: var(--panel); font-size: 11px; }
 .guide-reader-count { white-space: nowrap; color: var(--muted); font-size: 10px; }
 .guide-reading-note { margin: 5px 0 0; font-size: 9px; color: var(--muted); }
+/* Explorer answers "where is the code"; a Guide answers "what to read first and why". The
+   reading reason and its evidence anchor are what keeps the two from being the same tree. */
+.guide-step-reason { margin-top: 8px; padding: 9px 11px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: var(--radius-small); background: var(--soft); }
+.guide-step-kind { display: flex; align-items: center; gap: 5px; font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.guide-step-kind svg { width: 12px; height: 12px; }
+.guide-step-kind b { padding: 1px 5px; border-radius: 999px; background: var(--active); color: var(--accent); letter-spacing: 0; text-transform: none; }
+.guide-step-reason p { margin: 5px 0 0; font-size: 11px; line-height: 1.7; color: var(--text); }
+.guide-step-anchor { display: flex; align-items: center; gap: 7px; margin-top: 7px; }
+.guide-step-anchor .evidence-citations { margin: 0; flex: 1; }
+.guide-step-anchor .evidence-chip { margin: 0; }
+.guide-anchor-label { flex: none; font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+/* On a wide screen the reason sits beside the reader instead of under it, so the guide's
+   subgraph keeps a canvas tall enough to be read at reading zoom without scrolling. */
+@media (min-width: 1280px) {
+  .guide-story { display: grid; grid-template-columns: minmax(300px, 1fr) minmax(300px, 1.15fr); grid-template-areas: "context reason" "reader reason" "note reason"; column-gap: 14px; align-items: start; }
+  .guide-story-context { grid-area: context; }
+  .guide-reader { grid-area: reader; }
+  .guide-story .guide-step-reason { grid-area: reason; margin-top: 0; }
+  .guide-story .guide-step-reason p { line-height: 1.55; }
+  .guide-story .guide-reading-note { grid-area: note; }
+}
 @media (max-width: 750px) {
   .guide-story { padding: 8px 12px; }
   .guide-reader-count { display: none; }
@@ -1055,6 +1076,99 @@ kbd {
   color: var(--accent);
   padding: 4px 0;
 }
+/* A cited evidence ID is a control, never inert text: D10 requires it to open its real
+   excerpt, span and source file, and to say so when the snapshot has no such record. */
+.evidence-citations {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+}
+.evidence-chip {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 7px 9px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-small);
+  background: var(--soft);
+  color: var(--text);
+  font-size: 10px;
+  cursor: pointer;
+}
+.evidence-chip:hover,
+.evidence-chip:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.evidence-chip svg {
+  width: 13px;
+  height: 13px;
+  flex: none;
+}
+.evidence-chip span {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.evidence-chip small {
+  display: block;
+  margin: 0;
+  font:
+    9px/1.4 ui-monospace,
+    monospace;
+  color: var(--muted);
+  flex: none;
+  max-width: 42%;
+  overflow-wrap: anywhere;
+}
+.evidence-chip.unresolved {
+  border-style: dashed;
+}
+.evidence-viewer-top,
+.evidence-viewer-source {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  font-size: 11px;
+  margin-bottom: 10px;
+}
+.evidence-viewer-source b {
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.evidence-viewer-source small {
+  color: var(--muted);
+  font-size: 9px;
+}
+.evidence-viewer code {
+  font:
+    10px/1.5 ui-monospace,
+    monospace;
+  overflow-wrap: anywhere;
+}
+.evidence-excerpt {
+  font:
+    11px/1.7 ui-monospace,
+    monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 340px;
+  overflow: auto;
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-small);
+  background: var(--soft);
+  color: var(--text);
+}
+.evidence-missing {
+  font-size: 12px;
+  line-height: 1.8;
+}
 .empty-state {
   padding: 25px 5px;
   color: var(--muted);
@@ -1288,6 +1402,29 @@ dialog::backdrop {
 .export-option small {
   font-size: 10px;
   color: var(--muted);
+}
+.export-option:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.export-progress {
+  display: grid;
+  gap: 10px;
+}
+.export-progress progress {
+  width: 100%;
+  height: 8px;
+  accent-color: var(--accent);
+}
+.export-progress .btn {
+  justify-self: start;
+}
+.export-progress.is-done svg {
+  width: 14px;
+  height: 14px;
+  color: var(--accent);
+  vertical-align: -2px;
+  margin-right: 4px;
 }
 .bookmark {
   display: flex;
@@ -2256,6 +2393,44 @@ body.dark .brand-mark {
 .semantic-legend .legend-help svg {
   width: 13px;
   height: 13px;
+}
+.semantic-legend button.all-hidden {
+  opacity: 0.62;
+}
+.semantic-legend .legend-hidden {
+  color: var(--muted);
+  font-size: 9px;
+  border: 1px dashed color-mix(in srgb, var(--muted) 45%, var(--line));
+  border-radius: 3px;
+  padding: 0 3px;
+}
+/* The one control that reveals unproven candidate relations; its count is always visible. */
+.semantic-legend .candidate-toggle {
+  margin-left: auto;
+  gap: 6px;
+  color: var(--text);
+  border-color: var(--line);
+  background: var(--bg);
+  padding: 4px 8px;
+}
+.semantic-legend .candidate-toggle b {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 10px;
+}
+.semantic-legend .candidate-toggle svg {
+  width: 13px;
+  height: 13px;
+}
+.semantic-legend .candidate-toggle .candidate-toggle-verb {
+  color: var(--accent);
+  font-weight: 600;
+}
+.semantic-legend .candidate-toggle.active {
+  border-color: var(--accent);
+}
+.semantic-legend .candidate-toggle + .legend-help {
+  margin-left: 0;
 }
 .legend-caption {
   font-size: 10px;
@@ -3446,3 +3621,415 @@ body.flow-reduced .flow-particle {
 
 /* Section icons remain compact in the relationship inspector. */
 .section-label > svg { width:14px; height:14px; flex:0 0 14px; vertical-align:middle; }
+
+/* A saved view that could not be restored states its reason and its options. */
+.view-recovery {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 11px;
+}
+.view-recovery-text {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+.view-recovery-text b {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+  font-size: 11px;
+}
+.view-recovery-text svg {
+  width: 13px;
+  height: 13px;
+}
+.view-recovery-text p {
+  margin: 4px 0 0;
+}
+.view-recovery-text small {
+  display: block;
+  margin-top: 4px;
+  opacity: 0.75;
+  word-break: break-all;
+}
+.view-recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Semantic RelationGroup: collapsed shows totals and direction, expanded shows every role. */
+.relation-group-card {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.relation-group-card > summary {
+  cursor: pointer;
+  display: grid;
+  gap: 3px;
+}
+.relation-group-card > summary b {
+  color: var(--text);
+  word-break: break-all;
+}
+.relation-group-card .group-totals,
+.relation-group-card .group-activation {
+  font-size: 10px;
+  color: var(--muted);
+}
+.relation-group-card .group-roles {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.relation-group-card .group-participant {
+  display: grid;
+  gap: 2px;
+  padding: 6px 8px;
+  border-left: 2px solid var(--accent);
+  background: var(--bg);
+  border-radius: 0 8px 8px 0;
+  font-size: 10px;
+}
+.relation-group-card .group-participant b {
+  color: var(--text);
+}
+.relation-group-card .group-members {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+/* Authored layer (docs/AUTHORING.md). Agent interpretation is drawn in its own violet ink with a
+   dashed outline, so it never reads like a derived evidenceStatus `.badge` or a parsed fact. */
+.interpretation-badge {
+  --interp: #7a5bc4;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border: 1px dashed var(--interp);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--interp) 9%, var(--panel, #fff));
+  color: var(--interp);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+  cursor: help;
+}
+.interpretation-badge svg { width: 12px; height: 12px; flex: none; }
+.interpretation-badge[data-status="verified"] { --interp: #2f7d6b; border-style: solid; }
+.interpretation-badge[data-status="partly-verified"] { --interp: #b07a12; }
+.interpretation-badge[data-status="unverified"] { --interp: #8a6fb8; }
+.interpretation-mark {
+  margin-left: 5px;
+  padding: 0 4px;
+  border: 1px dashed #7a5bc4;
+  border-radius: 4px;
+  color: #7a5bc4;
+  font-style: normal;
+  font-size: 8px;
+  letter-spacing: 0;
+}
+.interpretation-mark[data-status="verified"] { border-style: solid; color: #2f7d6b; border-color: #2f7d6b; }
+.interpretation-mark[data-status="partly-verified"] { color: #b07a12; border-color: #b07a12; }
+.authored-statement {
+  margin: 0 0 10px;
+  padding: 7px 9px;
+  border-left: 3px solid color-mix(in srgb, #7a5bc4 55%, transparent);
+  border-radius: 0 var(--radius-small, 6px) var(--radius-small, 6px) 0;
+  background: color-mix(in srgb, #7a5bc4 4%, var(--panel, #fff));
+}
+.authored-statement > .detail-text { margin: 0 0 6px; }
+.authored-summary { margin: 0 0 6px; font-weight: 600; }
+.authored-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.citation-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--soft);
+  color: var(--text);
+  font: 10px/1.5 ui-monospace, monospace;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.citation-chip svg { width: 11px; height: 11px; flex: none; color: var(--muted); }
+.citation-chip:hover, .citation-chip:focus-visible { border-color: var(--accent); color: var(--accent); }
+.citation-chip.unresolved { border-style: dashed; color: var(--muted); }
+.derived-line { margin: 6px 0 0; font-size: 10px; line-height: 1.6; color: var(--muted); }
+.derived-line span {
+  margin-right: 5px;
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-size: 9px;
+}
+.orientation-panel > .interpretation-badge { margin-bottom: 8px; }
+.orientation-panel .section-label { margin-top: 18px; }
+.coverage-note {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  margin: 8px 0 4px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--soft);
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+.coverage-note svg { width: 13px; height: 13px; flex: none; margin-top: 2px; }
+.region-button {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  margin: 0 0 5px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--tone) 45%, var(--line));
+  border-left: 5px solid var(--tone);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--tone) 8%, var(--panel, #fff));
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.region-button:hover, .region-button:focus-visible { border-color: var(--tone); }
+.region-title { display: flex; align-items: center; gap: 7px; font-size: 12px; }
+.region-title .dot { background: var(--tone); }
+.region-title small { margin-left: auto; color: var(--muted); font-size: 10px; }
+.region-title svg { width: 13px; height: 13px; color: var(--muted); }
+.region-description { font-size: 10px; line-height: 1.6; color: var(--muted); }
+.region-button + .authored-meta { margin: 0 0 12px 6px; }
+.start-item { margin-bottom: 8px; }
+.start-item > .connection { margin-bottom: 4px; }
+.scenario-link .interpretation-badge { margin-left: auto; flex: none; }
+.scenario-button { flex-wrap: wrap; row-gap: 4px; }
+.scenario-button > span { flex: 1 1 calc(100% - 30px); min-width: 0; }
+.scenario-button span small { display: block; color: var(--muted); font-size: 9px; }
+.scenario-button .interpretation-badge { margin-left: 22px; }
+.orientation-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 18px 0 10px; }
+.claim-verdict { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.scenario-brief {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-small, 6px);
+  background: var(--panel, #fff);
+  font-size: 11px;
+}
+.scenario-brief summary { display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--muted); font-size: 10px; }
+.scenario-brief summary svg { width: 12px; height: 12px; }
+.scenario-brief .authored-statement { margin: 8px 0 2px; }
+.scenario-step {
+  margin-top: 8px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-small, 6px);
+  background: var(--soft);
+}
+.scenario-step > p { margin: 6px 0; font-size: 11px; line-height: 1.7; color: var(--text); }
+.scenario-step > p.micro { font-size: 10px; color: var(--muted); }
+.scenario-step-kind { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 10px; color: var(--muted); }
+.scenario-step-kind svg { width: 12px; height: 12px; }
+.resolution-badge { padding: 1px 6px; border-radius: 999px; font-weight: 600; font-size: 9px; }
+.resolution-badge[data-proven="true"] { background: var(--active); color: var(--accent); }
+.resolution-badge[data-proven="false"] { border: 1px dashed #b4532a; color: #b4532a; background: transparent; }
+.unproven-badge {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #b4532a;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+}
+.scenario-step.is-unproven { border-left: 3px dashed #b4532a; background: color-mix(in srgb, #b4532a 5%, var(--soft)); }
+.scenario-edge {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  margin-top: 7px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel, #fff);
+  color: var(--text);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.scenario-edge > span:not(.type-badge) { flex: 1; }
+.scenario-edge > svg { width: 13px; height: 13px; color: var(--muted); }
+.scenario-edge.is-unproven { border-style: dashed; border-color: #b4532a; }
+.story-progress button.unproven { outline: 1px dashed #b4532a; outline-offset: 1px; }
+:is(html[data-theme="midnight"], html[data-theme="graphite"], html[data-theme="aurora"]) .interpretation-badge { --interp: #b9a2f0; }
+:is(html[data-theme="midnight"], html[data-theme="graphite"], html[data-theme="aurora"]) .interpretation-badge[data-status="verified"] { --interp: #6fd1b5; }
+:is(html[data-theme="midnight"], html[data-theme="graphite"], html[data-theme="aurora"]) .interpretation-badge[data-status="partly-verified"] { --interp: #e6b450; }
+/* Narrative steps: a hand-over no code relation records. Neither the proven (accent, solid)
+   nor the candidate (amber, dashed) look: a blue-grey dotted card and an outlined badge. */
+.narrative-badge {
+  padding: 1px 6px;
+  border: 1px dotted #4f6d8f;
+  border-radius: 999px;
+  background: color-mix(in srgb, #4f6d8f 10%, var(--panel, #fff));
+  color: #4f6d8f;
+  font-size: 9px;
+  font-weight: 700;
+}
+.scenario-step.is-narrative { border-left: 3px dotted #4f6d8f; background: color-mix(in srgb, #4f6d8f 6%, var(--soft)); }
+.story-progress button.narrative { background: transparent; outline: 1px dotted #4f6d8f; outline-offset: 0; }
+.story-progress button.narrative.active { background: color-mix(in srgb, #4f6d8f 45%, transparent); }
+:is(html[data-theme="midnight"], html[data-theme="graphite"], html[data-theme="aurora"]) .narrative-badge { color: #9fb7d4; border-color: #9fb7d4; }
+/* Split files: declarations of one file under several regions, with the real file named. */
+.split-file-mark {
+  margin-left: 5px;
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--muted);
+  font: 8px/1.5 ui-monospace, monospace;
+  font-style: normal;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.real-location {
+  display: flex;
+  gap: 7px;
+  align-items: flex-start;
+  margin: 8px 0 4px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--soft);
+  font-size: 10px;
+  line-height: 1.6;
+}
+.real-location > svg { width: 13px; height: 13px; flex: none; margin-top: 2px; color: var(--muted); }
+.real-location > span { display: grid; gap: 3px; min-width: 0; }
+.real-location small { color: var(--muted); font-size: 9px; }
+.real-location code { font: 10px/1.5 ui-monospace, monospace; overflow-wrap: anywhere; }
+.real-location-regions { display: flex; flex-wrap: wrap; gap: 4px; }
+.real-location-regions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border: 1px solid color-mix(in srgb, var(--tone) 45%, var(--line));
+  border-radius: 999px;
+  background: var(--panel, #fff);
+  color: var(--text);
+  font-size: 9px;
+  cursor: pointer;
+}
+.real-location-regions .dot { background: var(--tone); }
+/* Dark themes: the canvas mark needs its own inks to keep ≥ 4.5:1 on dark panels. */
+:is(html[data-theme="midnight"], html[data-theme="graphite"], html[data-theme="aurora"]) .interpretation-mark { color: #c9b8f5; border-color: #c9b8f5; }
+:is(html[data-theme="midnight"], html[data-theme="graphite"], html[data-theme="aurora"]) .interpretation-mark[data-status="verified"] { color: #7fe0c4; border-color: #7fe0c4; }
+:is(html[data-theme="midnight"], html[data-theme="graphite"], html[data-theme="aurora"]) .interpretation-mark[data-status="partly-verified"] { color: #f0c46a; border-color: #f0c46a; }
+/* Coverage: the open denominator and every item that was rejected or skipped. */
+.coverage-ledger { margin: 0 0 6px; color: var(--muted); font-size: 10px; line-height: 1.6; }
+.coverage-details { margin: 0 0 8px; padding: 6px 9px; border: 1px solid var(--line); border-radius: 6px; font-size: 10px; }
+.coverage-details summary { cursor: pointer; color: var(--text); }
+.coverage-details ul { margin: 6px 0 0; padding-left: 16px; }
+.rejection-groups > li > b { font: 600 10px/1.6 ui-monospace, monospace; }
+.rejection-groups > li > span { margin-left: 6px; color: var(--muted); }
+.rejection-groups ul li, .skipped-work li { color: var(--muted); overflow-wrap: anywhere; }
+.coverage-details code { font: 9px/1.5 ui-monospace, monospace; color: var(--text); }
+.authoring-notice {
+  display: flex; gap: 6px; align-items: flex-start; margin: 0 0 10px; padding: 7px 9px;
+  border: 1px dashed #b4532a; border-radius: 6px; color: var(--text); font-size: 10px; line-height: 1.6;
+}
+.authoring-notice svg { width: 13px; height: 13px; flex: none; margin-top: 2px; color: #b4532a; }
+.evidence-card summary .interpretation-badge, .evidence-card summary .unproven-badge, .compare-grid li .interpretation-badge { margin-left: 6px; }
+/* Agent-made names (region labels, scenario labels/titles): neutral, never a grade. */
+.name-chip {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 5px;
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--soft);
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 500;
+  font-style: normal;
+  letter-spacing: 0;
+  text-transform: none;
+  line-height: 1.6;
+  white-space: nowrap;
+  vertical-align: middle;
+  cursor: help;
+}
+.page-title .name-chip { font-size: 10px; }
+.coverage-strip { margin: 6px 0 0; font-size: 10px; color: var(--muted); }
+.coverage-strip > summary { display: flex; align-items: center; gap: 5px; cursor: pointer; }
+.coverage-strip > summary svg { width: 12px; height: 12px; flex: none; }
+.coverage-strip[open] { padding: 6px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel, #fff); }
+.coverage-history { margin-top: 6px; }
+.coverage-history summary { cursor: pointer; color: var(--muted); }
+/* Human review (claims tab). A person's check is a square, solid chip with a person's name;
+   the agent's grade beside it stays the dashed violet pill, so the two never read alike. */
+.review-badge {
+  --review: #6b7772;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border: 1px solid var(--review);
+  border-radius: 3px;
+  background: var(--panel, #fff);
+  color: var(--review);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.5;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.review-badge svg { width: 11px; height: 11px; flex: none; }
+.review-badge[data-review="checked"] { --review: #1f6f4a; background: #1f6f4a; color: #fff; }
+.review-badge[data-review="rejected"] { --review: #a33a2b; background: #a33a2b; color: #fff; }
+.review-badge[data-review="invalidated"] { --review: #9a5b00; background: repeating-linear-gradient(135deg, #fff3dc 0 4px, var(--panel, #fff) 4px 8px); }
+.review-badge[data-review="stale"] { --review: #9a5b00; }
+.review-block { margin: 10px 0; padding: 8px 10px; border-left: 3px solid var(--line); background: var(--soft); border-radius: 0 6px 6px 0; }
+.review-record { font-size: 11px; line-height: 1.7; color: var(--text); }
+.review-history { margin: 6px 0 0 16px; font-size: 10px; line-height: 1.7; color: var(--muted); }
+.review-history li[data-event="invalidated"] { color: #9a5b00; }
+.review-actions { display: flex; gap: 6px; margin-top: 8px; }
+.review-actions .btn { font-size: 11px; }
+.review-status { margin: 10px 0 12px; }
+.review-status ul { list-style: none; display: grid; gap: 3px; margin: 6px 0 0; padding: 0; }
+.review-status li { display: block; font-size: 11px; line-height: 1.5; padding: 4px 8px 4px 11px; border-radius: 5px; background: var(--soft); }
+.review-status li b { margin-right: 4px; }
+.review-status li span { display: block; color: var(--muted); font-size: 10px; }
+.claim-verdict svg { width: 12px; height: 12px; flex: none; }
+.review-status li[data-satisfied="true"] { box-shadow: inset 3px 0 0 #1f6f4a; }
+.review-status li[data-satisfied="false"] { box-shadow: inset 3px 0 0 #9a5b00; }
+.claims-scope { display: flex; gap: 6px; margin: 10px 0 6px; }
+.claims-scope button { padding: 4px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel, #fff); color: var(--text); font-size: 11px; cursor: pointer; }
+.claims-scope button[aria-pressed="true"] { border-color: var(--accent); background: var(--active); color: var(--accent); }
+.claims-scope small { margin-left: 5px; color: var(--muted); }
+.claims-pager { display: flex; align-items: center; gap: 6px; margin: 6px 0 10px; font-size: 11px; }
+.claims-pager .claims-count { margin-right: auto; font-variant-numeric: tabular-nums; color: var(--muted); }
+.claims-pager .btn[disabled] { opacity: .45; cursor: default; }
+.review-quote { margin: 0 0 12px; padding: 8px 12px; border-left: 3px solid var(--accent); background: var(--soft); font-size: 12px; line-height: 1.7; }
+.modal-content textarea { width: 100%; padding: 11px; background: var(--soft); color: var(--text); border: 1px solid var(--line); border-radius: 6px; margin: 6px 0 12px; font: inherit; }
+.modal-content .review-error { color: #a33a2b; font-weight: 600; margin-bottom: 8px; }
+.modal-content .review-error:empty { display: none; }
+:is(html[data-theme="midnight"], html[data-theme="graphite"], html[data-theme="aurora"]) .review-badge[data-review="invalidated"] { background: repeating-linear-gradient(135deg, #3a2a10 0 4px, var(--panel) 4px 8px); color: #f0b45a; --review: #f0b45a; }

@@ -2917,6 +2917,37 @@ var Module2 = (() => {
           wasmTable.grow(metadata.tableSize);
         }
         var moduleExports;
+        /* Skylense patch — narrow ctype for grammar side modules.
+         *
+         * This build of web-tree-sitter exports the wide-character classifiers
+         * (`iswalpha`, `iswdigit`, …) but not the narrow ones, because the grammars it
+         * was bundled with never called them. `tree-sitter-bash`'s external scanner
+         * calls `isalpha`, so every `[[ … ]]` test command reached the dynamic-linking
+         * stub with nothing to resolve and threw `resolved is not a function` — one
+         * shell script with an extended test aborted a whole repository analysis.
+         *
+         * These are the C locale, which is the only locale this runtime has: the
+         * argument is EOF or an unsigned char, and every byte at or above 0x80 is
+         * unclassified. They are pure functions of one integer, so supplying them
+         * cannot change any symbol the main module does export — the table is only
+         * consulted after a real export lookup has already failed.
+         */
+        var NARROW_CTYPE = {
+          isalpha: c => (c >= 65 && c <= 90) || (c >= 97 && c <= 122) ? 1 : 0,
+          isdigit: c => c >= 48 && c <= 57 ? 1 : 0,
+          isalnum: c => (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122) ? 1 : 0,
+          isupper: c => c >= 65 && c <= 90 ? 1 : 0,
+          islower: c => c >= 97 && c <= 122 ? 1 : 0,
+          isspace: c => c === 32 || (c >= 9 && c <= 13) ? 1 : 0,
+          isblank: c => c === 32 || c === 9 ? 1 : 0,
+          isxdigit: c => (c >= 48 && c <= 57) || (c >= 65 && c <= 70) || (c >= 97 && c <= 102) ? 1 : 0,
+          isprint: c => c >= 32 && c <= 126 ? 1 : 0,
+          isgraph: c => c >= 33 && c <= 126 ? 1 : 0,
+          iscntrl: c => (c >= 0 && c <= 31) || c === 127 ? 1 : 0,
+          ispunct: c => c >= 33 && c <= 126 && !((c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122)) ? 1 : 0,
+          tolower: c => (c >= 65 && c <= 90 ? c + 32 : c),
+          toupper: c => (c >= 97 && c <= 122 ? c - 32 : c),
+        };
         function resolveSymbol(sym) {
           var resolved = resolveGlobalSymbol(sym).sym;
           if (!resolved && localScope) {
@@ -2924,6 +2955,9 @@ var Module2 = (() => {
           }
           if (!resolved) {
             resolved = moduleExports[sym];
+          }
+          if (!resolved && Object.hasOwn(NARROW_CTYPE, sym)) {
+            resolved = NARROW_CTYPE[sym];
           }
           return resolved;
         }

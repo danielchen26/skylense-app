@@ -2,12 +2,14 @@
 (function (root) {
   "use strict";
   const supported = new Set(["python", "javascript", "typescript", "julia", "markdown", "html"]);
-  const categoryOrder = ["source", "examples", "tests", "docs", "tooling", "other"];
+  const categoryOrder = ["source", "examples", "tests", "docs", "tooling", "vendored", "other"];
   const basename = path => String(path || "").split("/").pop();
   const dirname = path => String(path || "").split("/").slice(0, -1).join("/");
-  function categoryFor(node, file) {
+  function categoryFor(node, file, vendored) {
     const path = String(node.path || "").toLowerCase(), name = basename(path);
     // These are navigational groupings of explicit paths, not inferred responsibilities.
+    // Vendored directories come from the ingestion report (SkylenseIngest.vendoredRoots).
+    if (root.SkylenseIngest?.vendoredRootOf(node.path, vendored)) return "vendored";
     if (/(^|\/)(test|tests|__tests__|spec|specs|fixtures)(\/|$)/.test(path) || /(^tests?[_\.-]|^runtests\.|[_-]test\.|\.(test|spec)\.)/.test(name)) return "tests";
     if (/(^|\/)(example|examples|demo|demos|samples|tutorials)(\/|$)/.test(path)) return "examples";
     if (/(^|\/)(docs?|documentation)(\/|$)/.test(path) || file?.fileKind === "document" || /\.(md|mdx|rst|adoc)$/.test(name)) return "docs";
@@ -96,7 +98,7 @@
     // promised directed path. Explicit edge IDs preserve branching, direction and evidence.
     const used = new Set(), flows = [], chosen = new Set(), usedPaths = new Set(), usedModules = new Set();
     const candidates = [...adjacent.keys()].map(id => {
-      const node = nodes.get(id), category = categoryFor(node, byPath.get(node.path));
+      const node = nodes.get(id), category = categoryFor(node, byPath.get(node.path), report.vendored);
       return { id, node, category, module: category + ":" + dirname(node.path).split("/").slice(0, 2).join("/"), priority: entryPriority(node, category, adjacent.get(id)) };
     }).sort((a, b) => categoryOrder.indexOf(a.category) - categoryOrder.indexOf(b.category) || b.priority - a.priority || weights.get(b.id) - weights.get(a.id) || (a.node.path || a.id).localeCompare(b.node.path || b.id) || a.id.localeCompare(b.id));
     function addGuide(candidate) {
@@ -143,6 +145,7 @@
     report.readingGuides = flows.length;
     report.guideEdgeCoverage = { included: used.size, total: model.edges.length, limit: 12, maxNodesPerGuide: 16 };
     report.capabilities.readingGuides = "Bounded static dependency neighborhoods, including branches; never inferred execution order. All original relationships remain available through hierarchy, upstream/downstream and path search.";
+    report.capabilities.functionContracts = "Supported declarations keep source parameters and explicit return types; missing annotations, unsupported forms and partial extraction are recorded separately. Signature text is not a business role or runtime contract.";
     return model;
   }
   root.SkylenseSourceInsights = { enrich };

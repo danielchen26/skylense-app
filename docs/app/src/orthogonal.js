@@ -143,51 +143,211 @@
     return length * penalty;
   }
 
-  class MinHeap {
+  /* Search frontier in typed arrays, one slot per heap position. Ordering by
+   * (priority, heuristic, push sequence) is total, so the pop order does not
+   * depend on the heap's internal layout. pop() leaves the minimum in
+   * topState/topCost.
+   *
+   * A* mostly walks straight towards the target: a quarter of all pushes are
+   * smaller than everything queued and are popped next. Such an entry is held
+   * outside the heap instead of being sifted to the root and straight back.
+   * A newer push never wins a full tie, so only priority and heuristic decide
+   * whether it undercuts the held entry or the root.
+   */
+  class StateHeap {
     constructor() {
-      this.values = [];
-      this.sequence = 0;
+      this.priority = new Float64Array(1024);
+      this.heuristic = new Float64Array(1024);
+      this.sequence = new Int32Array(1024);
+      this.state = new Int32Array(1024);
+      this.cost = new Float64Array(1024);
+      this.count = 0;
+      this.length = 0;
+      this.pushes = 0;
+      this.held = false;
+      this.heldPriority = 0;
+      this.heldHeuristic = 0;
+      this.heldSequence = 0;
+      this.heldState = 0;
+      this.heldCost = 0;
+      this.topState = -1;
+      this.topCost = 0;
     }
-    before(a, b) {
-      return (
-        a.priority < b.priority ||
-        (a.priority === b.priority &&
-          (a.heuristic < b.heuristic ||
-            (a.heuristic === b.heuristic && a.sequence < b.sequence)))
-      );
+    reset() {
+      this.count = 0;
+      this.length = 0;
+      this.pushes = 0;
+      this.held = false;
     }
-    push(value) {
-      value.sequence = this.sequence++;
-      let index = this.values.length;
-      this.values.push(value);
+    push(state, cost, heuristic, priority) {
+      const sequence = this.pushes++;
+      this.length++;
+      if (this.held) {
+        if (
+          priority < this.heldPriority ||
+          (priority === this.heldPriority && heuristic < this.heldHeuristic)
+        ) {
+          this.insert(
+            this.heldState,
+            this.heldCost,
+            this.heldHeuristic,
+            this.heldPriority,
+            this.heldSequence,
+          );
+          this.hold(state, cost, heuristic, priority, sequence);
+        } else this.insert(state, cost, heuristic, priority, sequence);
+      } else if (
+        !this.count ||
+        priority < this.priority[0] ||
+        (priority === this.priority[0] && heuristic < this.heuristic[0])
+      )
+        this.hold(state, cost, heuristic, priority, sequence);
+      else this.insert(state, cost, heuristic, priority, sequence);
+    }
+    hold(state, cost, heuristic, priority, sequence) {
+      this.held = true;
+      this.heldState = state;
+      this.heldCost = cost;
+      this.heldHeuristic = heuristic;
+      this.heldPriority = priority;
+      this.heldSequence = sequence;
+    }
+    grow() {
+      for (const key of ["priority", "heuristic", "sequence", "state", "cost"]) {
+        const larger = new this[key].constructor(this[key].length * 2);
+        larger.set(this[key]);
+        this[key] = larger;
+      }
+    }
+    insert(state, cost, heuristic, priority, sequence) {
+      if (this.count === this.state.length) this.grow();
+      const priorities = this.priority,
+        heuristics = this.heuristic,
+        sequences = this.sequence,
+        states = this.state,
+        costs = this.cost;
+      let index = this.count++;
       while (index > 0) {
         const parent = (index - 1) >> 1;
-        if (!this.before(value, this.values[parent])) break;
-        this.values[index] = this.values[parent];
+        const p = priorities[parent];
+        if (
+          !(
+            priority < p ||
+            (priority === p &&
+              (heuristic < heuristics[parent] ||
+                (heuristic === heuristics[parent] &&
+                  sequence < sequences[parent])))
+          )
+        )
+          break;
+        priorities[index] = p;
+        heuristics[index] = heuristics[parent];
+        sequences[index] = sequences[parent];
+        states[index] = states[parent];
+        costs[index] = costs[parent];
         index = parent;
       }
-      this.values[index] = value;
+      priorities[index] = priority;
+      heuristics[index] = heuristic;
+      sequences[index] = sequence;
+      states[index] = state;
+      costs[index] = cost;
     }
     pop() {
-      const first = this.values[0],
-        last = this.values.pop();
-      if (this.values.length) {
-        let index = 0;
-        while (index * 2 + 1 < this.values.length) {
-          let child = index * 2 + 1;
-          if (
-            child + 1 < this.values.length &&
-            this.before(this.values[child + 1], this.values[child])
-          )
-            child++;
-          if (!this.before(this.values[child], last)) break;
-          this.values[index] = this.values[child];
-          index = child;
-        }
-        this.values[index] = last;
+      this.length--;
+      if (this.held) {
+        this.held = false;
+        this.topState = this.heldState;
+        this.topCost = this.heldCost;
+        return;
       }
-      return first;
+      const priorities = this.priority,
+        heuristics = this.heuristic,
+        sequences = this.sequence,
+        states = this.state,
+        costs = this.cost;
+      this.topState = states[0];
+      this.topCost = costs[0];
+      const length = --this.count;
+      if (!length) return;
+      const priority = priorities[length],
+        heuristic = heuristics[length],
+        sequence = sequences[length],
+        state = states[length],
+        cost = costs[length];
+      let index = 0;
+      while (index * 2 + 1 < length) {
+        let child = index * 2 + 1;
+        const right = child + 1;
+        if (
+          right < length &&
+          (priorities[right] < priorities[child] ||
+            (priorities[right] === priorities[child] &&
+              (heuristics[right] < heuristics[child] ||
+                (heuristics[right] === heuristics[child] &&
+                  sequences[right] < sequences[child]))))
+        )
+          child = right;
+        const p = priorities[child];
+        if (
+          !(
+            p < priority ||
+            (p === priority &&
+              (heuristics[child] < heuristic ||
+                (heuristics[child] === heuristic &&
+                  sequences[child] < sequence)))
+          )
+        )
+          break;
+        priorities[index] = p;
+        heuristics[index] = heuristics[child];
+        sequences[index] = sequences[child];
+        states[index] = states[child];
+        costs[index] = costs[child];
+        index = child;
+      }
+      priorities[index] = priority;
+      heuristics[index] = heuristic;
+      sequences[index] = sequence;
+      states[index] = state;
+      costs[index] = cost;
     }
+  }
+
+  /* Search buffers shared by every findRoute call. A grid of a few hundred
+   * thousand states makes fresh per-route arrays cost more in allocation and
+   * page faults than the search itself; routing is synchronous, so one set
+   * of buffers, grown to the largest grid seen, serves every request.
+   */
+  const search = {
+    heap: new StateHeap(),
+    distances: new Float64Array(0),
+    previous: new Int32Array(0),
+  };
+  function searchBuffers(states) {
+    if (search.distances.length < states) {
+      let length = 1024;
+      while (length < states) length *= 2;
+      search.distances = new Float64Array(length);
+      search.previous = new Int32Array(length);
+    } else search.distances.fill(0, 0, states);
+    search.heap.reset();
+    return search;
+  }
+
+  /** One grid axis: the distinct coordinates in ascending order, framed by
+   * one margin line below the lowest and one above the highest. A frame line
+   * that rounds onto an existing coordinate is that coordinate. */
+  function sortedAxis(values, margin) {
+    const sorted = Float64Array.from(values).sort(),
+      low = sorted[0] - margin,
+      high = sorted[sorted.length - 1] + margin;
+    const first = low === sorted[0] ? 0 : 1,
+      axis = new Float64Array(sorted.length + first + (high === sorted[sorted.length - 1] ? 0 : 1));
+    if (first) axis[0] = low;
+    axis.set(sorted, first);
+    if (axis.length > sorted.length + first) axis[axis.length - 1] = high;
+    return axis;
   }
 
   /* The Cartesian visibility grid includes every rectangle boundary and port.
@@ -238,18 +398,26 @@
     const margin = options.margin ?? padding + 24;
     if (!Number.isFinite(margin) || margin <= 0)
       throw new TypeError("Margin must be finite and positive.");
-    xSet.add(Math.min(...xSet) - margin);
-    xSet.add(Math.max(...xSet) + margin);
-    ySet.add(Math.min(...ySet) - margin);
-    ySet.add(Math.max(...ySet) + margin);
-    const xs = [...xSet].sort((a, b) => a - b),
-      ys = [...ySet].sort((a, b) => a - b);
+    const xs = sortedAxis(xSet, margin),
+      ys = sortedAxis(ySet, margin);
     const width = xs.length,
       height = ys.length,
       size = width * height;
+    // Sorted axes: finite ends mean every grid line is finite. A line that
+    // overflowed to ±Infinity would make step and lane terms NaN, so such
+    // inputs are refused rather than routed.
+    if (
+      !Number.isFinite(xs[0]) ||
+      !Number.isFinite(xs[width - 1]) ||
+      !Number.isFinite(ys[0]) ||
+      !Number.isFinite(ys[height - 1])
+    )
+      throw new TypeError("Grid coordinates must stay finite.");
     if (size > (options.maxGridPoints ?? 200000)) return null;
-    const xIndex = new Map(xs.map((value, i) => [value, i]));
-    const yIndex = new Map(ys.map((value, i) => [value, i]));
+    const xIndex = new Map(),
+      yIndex = new Map();
+    for (let i = 0; i < width; i++) xIndex.set(xs[i], i);
+    for (let i = 0; i < height; i++) yIndex.set(ys[i], i);
     const vertices = new Uint8Array(size);
     const horizontal = new Uint8Array(height * (width - 1));
     const vertical = new Uint8Array((height - 1) * width);
@@ -265,7 +433,7 @@
       for (let y = top; y < bottom; y++)
         vertical.fill(1, y * width + left + 1, y * width + right);
     }
-    return {
+    const grid = {
       xs,
       ys,
       xIndex,
@@ -276,6 +444,51 @@
       vertices,
       horizontal,
       vertical,
+      // The lanes this grid was built from; findRoute reuses their edge
+      // lengths when a request routes against the same usedSegments array.
+      usedSegments: options.usedSegments,
+    };
+    grid.laneLengths = laneLengths(lanes, grid);
+    return grid;
+  }
+
+  /* Occupied-lane length of every grid edge. For rows, lengths[offsets[y] + x]
+   * is the edge from (xs[x], ys[y]) rightwards; for columns,
+   * lengths[offsets[x] + y] the edge from (xs[x], ys[y]) downwards. An axis
+   * no lane runs along has offset -1. Equals laneCost(a, b, lanes, 1) for
+   * that edge. A span whose ends are grid coordinates covers whole edges, so
+   * adding each covered edge's length in span order reproduces laneCost's
+   * sum term for term (every other span contributes exactly 0). All axes
+   * share one buffer: a few hundred small typed arrays per grid cost more to
+   * allocate than filling them.
+   */
+  function laneLengths(lanes, { xs, ys, xIndex, yIndex }) {
+    const along = (spansByAxis, axes, values, index, edge) => {
+      const stride = values.length - 1,
+        offsets = new Int32Array(axes.length).fill(-1);
+      let used = 0;
+      for (let i = 0; i < axes.length; i++)
+        if (spansByAxis.has(axes[i])) offsets[i] = stride * used++;
+      const lengths = new Float64Array(stride * used);
+      for (let i = 0; i < axes.length; i++) {
+        const base = offsets[i];
+        if (base < 0) continue;
+        const axis = axes[i],
+          spans = spansByAxis.get(axis);
+        if (spans.every(([from, to]) => index.has(from) && index.has(to))) {
+          for (const [from, to] of spans)
+            for (let k = index.get(from), last = index.get(to); k < last; k++)
+              lengths[base + k] += values[k + 1] - values[k];
+        } else {
+          for (let k = 0; k < stride; k++)
+            lengths[base + k] = laneCost(...edge(axis, values[k], values[k + 1]), lanes, 1);
+        }
+      }
+      return { offsets, lengths };
+    };
+    return {
+      rows: along(lanes.horizontal, ys, xs, xIndex, (y, a, b) => [{ x: a, y }, { x: b, y }]),
+      columns: along(lanes.vertical, xs, ys, yIndex, (x, a, b) => [{ x, y: a }, { x, y: b }]),
     };
   }
 
@@ -317,24 +530,60 @@
     const overlapPenalty = options.overlapPenalty ?? 4;
     if (!Number.isFinite(overlapPenalty) || overlapPenalty < 0)
       return blocked("invalid-overlap-penalty");
-    const lanes = occupiedLanes(options.usedSegments);
-    const distances = new Float64Array(size * 3).fill(Infinity);
-    const previous = new Int32Array(size * 3).fill(-1);
-    const heap = new MinHeap();
+    const { rows, columns } =
+      options.usedSegments === grid.usedSegments
+        ? grid.laneLengths
+        : laneLengths(occupiedLanes(options.usedSegments), grid);
+    const rowLanes = rows.lengths,
+      columnLanes = columns.lengths;
+    // Unreached states hold distance 0 instead of Infinity: grid coordinates
+    // are distinct, so every step costs more than 0 and only the first state
+    // is genuinely at 0. Only distances needs clearing; previous is only
+    // read along reached states, each written in this search.
+    const { distances, previous, heap } = searchBuffers(size * 3);
+    // Per-axis terms, precomputed once. Each equals what the textbook form
+    // computes per step: |xs[x±1] - xs[x]| is the gap stepX (IEEE subtraction
+    // is exactly antisymmetric), and terms that are exactly 0 (the other
+    // axis, no bend, no lane) leave a sum unchanged, so they are skipped.
+    const stepX = new Float64Array(width),
+      stepY = new Float64Array(height),
+      toEndX = new Float64Array(width),
+      toEndY = new Float64Array(height);
+    for (let i = 0; i < width; i++) {
+      if (i + 1 < width) stepX[i] = xs[i + 1] - xs[i];
+      toEndX[i] = Math.abs(xs[i] - end.x);
+    }
+    for (let i = 0; i < height; i++) {
+      if (i + 1 < height) stepY[i] = ys[i + 1] - ys[i];
+      toEndY[i] = Math.abs(ys[i] - end.y);
+    }
+    const rowStride = width - 1;
     const firstState = source * 3;
-    distances[firstState] = 0;
-    heap.push({ state: firstState, cost: 0, priority: 0, heuristic: 0 });
+    previous[firstState] = -1;
+    heap.push(firstState, 0, 0, 0);
     let iterations = 0;
     const limit = options.maxIterations ?? size * 12;
-    while (heap.values.length) {
+    // One relaxation. The fixed neighbour order below (right, down, left, up)
+    // resolves equivalent lanes consistently, because push order breaks ties.
+    const relax = (currentState, cost, nextState, nx, ny) => {
+      const known = distances[nextState];
+      if (known && cost >= known) return;
+      distances[nextState] = cost;
+      previous[nextState] = currentState;
+      const heuristic = toEndX[nx] + toEndY[ny];
+      heap.push(nextState, cost, heuristic, cost + heuristic);
+    };
+    while (heap.length) {
       if (++iterations > limit) return blocked("search-limit");
-      const current = heap.pop();
-      if (current.cost !== distances[current.state]) continue;
-      const index = Math.floor(current.state / 3),
-        orientation = current.state % 3;
+      heap.pop();
+      const currentState = heap.topState,
+        currentCost = heap.topCost;
+      if (currentCost !== distances[currentState]) continue;
+      const index = (currentState / 3) | 0,
+        orientation = currentState - index * 3;
       if (index === target) {
         const points = [];
-        let state = current.state;
+        let state = currentState;
         while (state !== -1) {
           const point = Math.floor(state / 3);
           points.push({
@@ -346,45 +595,52 @@
         return resultFromPoints(points.reverse());
       }
       const x = index % width,
-        y = Math.floor(index / width);
-      // Fixed order resolves equivalent lanes consistently.
-      const neighbors = [
-        [x + 1, y, 2, x + 1 < width && !horizontal[y * (width - 1) + x]],
-        [x, y + 1, 4, y + 1 < height && !vertical[y * width + x]],
-        [x - 1, y, 1, x > 0 && !horizontal[y * (width - 1) + x - 1]],
-        [x, y - 1, 3, y > 0 && !vertical[(y - 1) * width + x]],
-      ];
-      for (const [nx, ny, direction, available] of neighbors) {
-        if (!available) continue;
-        const next = ny * width + nx;
-        if (vertices[next]) continue;
-        if (index === source && startDirection && direction !== startDirection)
-          continue;
-        if (next === target && endDirection && direction !== endDirection)
-          continue;
-        const nextOrientation = direction <= 2 ? 1 : 2;
-        const nextState = next * 3 + nextOrientation;
-        const cost =
-          current.cost +
-          Math.abs(xs[nx] - xs[x]) +
-          Math.abs(ys[ny] - ys[y]) +
-          (orientation && orientation !== nextOrientation ? bendPenalty : 0) +
-          laneCost(
-            { x: xs[x], y: ys[y] },
-            { x: xs[nx], y: ys[ny] },
-            lanes,
-            overlapPenalty,
-          );
-        if (cost >= distances[nextState]) continue;
-        distances[nextState] = cost;
-        previous[nextState] = current.state;
-        const heuristic = Math.abs(xs[nx] - end.x) + Math.abs(ys[ny] - end.y);
-        heap.push({
-          state: nextState,
-          cost,
-          heuristic,
-          priority: cost + heuristic,
-        });
+        y = (index - x) / width;
+      const only = index === source ? startDirection : 0;
+      // Orientation 1 is horizontal travel, 2 vertical, 0 the start.
+      const turnX = orientation === 2 ? bendPenalty : 0,
+        turnY = orientation === 1 ? bendPenalty : 0;
+      const row = overlapPenalty ? rows.offsets[y] : -1,
+        column = overlapPenalty ? columns.offsets[x] : -1;
+      if ((!only || only === 2) && x + 1 < width && !horizontal[y * rowStride + x]) {
+        const next = index + 1;
+        if (!vertices[next] && (next !== target || !endDirection || endDirection === 2)) {
+          let cost = currentCost + stepX[x];
+          if (turnX) cost += turnX;
+          const lane = row < 0 ? 0 : rowLanes[row + x];
+          if (lane) cost += lane * overlapPenalty;
+          relax(currentState, cost, next * 3 + 1, x + 1, y);
+        }
+      }
+      if ((!only || only === 4) && y + 1 < height && !vertical[index]) {
+        const next = index + width;
+        if (!vertices[next] && (next !== target || !endDirection || endDirection === 4)) {
+          let cost = currentCost + stepY[y];
+          if (turnY) cost += turnY;
+          const lane = column < 0 ? 0 : columnLanes[column + y];
+          if (lane) cost += lane * overlapPenalty;
+          relax(currentState, cost, next * 3 + 2, x, y + 1);
+        }
+      }
+      if ((!only || only === 1) && x > 0 && !horizontal[y * rowStride + x - 1]) {
+        const next = index - 1;
+        if (!vertices[next] && (next !== target || !endDirection || endDirection === 1)) {
+          let cost = currentCost + stepX[x - 1];
+          if (turnX) cost += turnX;
+          const lane = row < 0 ? 0 : rowLanes[row + x - 1];
+          if (lane) cost += lane * overlapPenalty;
+          relax(currentState, cost, next * 3 + 1, x - 1, y);
+        }
+      }
+      if ((!only || only === 3) && y > 0 && !vertical[index - width]) {
+        const next = index - width;
+        if (!vertices[next] && (next !== target || !endDirection || endDirection === 3)) {
+          let cost = currentCost + stepY[y - 1];
+          if (turnY) cost += turnY;
+          const lane = column < 0 ? 0 : columnLanes[column + y - 1];
+          if (lane) cost += lane * overlapPenalty;
+          relax(currentState, cost, next * 3 + 2, x, y - 1);
+        }
       }
     }
     return blocked("no-route");

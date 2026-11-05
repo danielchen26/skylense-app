@@ -40,8 +40,8 @@
           const parts = [symbol.name]; let parent = entry.syntaxFacts.symbols[symbol.parent], valid = true;
           while (parent) { if (parent.kind !== "module" || parent.conditional) { valid = false; break; } parts.unshift(parent.name); parent = entry.syntaxFacts.symbols[parent.parent]; }
           if (!valid || parts.some(part => !IDENTIFIER.test(part))) continue;
-          const key = scopeKey(entry.path, symbol.index), name = parts.join("."); modules.set(key, { key, name, scope: scopes.get(key) });
-          const found = moduleNames.get(name) || []; found.push(key); moduleNames.set(name, found);
+          const key = scopeKey(entry.path, symbol.index);
+          modules.set(key, { key, path: entry.path, localName: parts.join("."), name: parts.join("."), scope: scopes.get(key) });
         }
       }
     }
@@ -55,10 +55,14 @@
       }
       return null;
     }
+    // A file's include context also fixes when its statements run: a module body is
+    // evaluated while it is being included, statement by statement.
+    const includedFrom = new Map();
     for (const entry of inputs) for (const fact of entry.syntaxFacts.imports) if (fact.form === "julia-include" && !fact.conditional) {
       const target = relative(entry.path, fact.specifier), source = enclosingModuleScope(scopes.get(scopeKey(entry.path, fact.owner)));
       if (!target || !files.has(target) || !source) continue;
       const key = rootKey(target), found = incoming.get(key) || []; found.push(source); incoming.set(key, found);
+      const parents = includedFrom.get(target) || []; parents.push({ path: entry.path, line: fact.line }); includedFrom.set(target, parents);
     }
     function context(key, visiting = new Set()) {
       if (modules.has(key)) return key;
@@ -67,6 +71,61 @@
       visiting.add(key);
       const parents = incoming.get(key), resolved = parents?.length ? unique(parents.map(parent => context(parent, visiting))) : [key];
       visiting.delete(key); const value = resolved.length === 1 && resolved[0] !== null ? resolved[0] : null; contextCache.set(key, value); return value;
+    }
+    // A module declared in an included file belongs to the including module's namespace:
+    // `module Inner` inside a file that `module Top` includes is Top.Inner, and a bare
+    // `using Inner` does not name it. https://docs.julialang.org/en/v1/manual/modules/
+    function qualifiedModuleName(key, visiting = new Set()) {
+      const record = modules.get(key); if (!record) return null;
+      if (record.qualified !== undefined) return record.qualified;
+      if (visiting.has(key)) return null;
+      visiting.add(key);
+      const enclosing = context(rootKey(record.path));
+      const prefix = enclosing && enclosing !== key && modules.has(enclosing) ? qualifiedModuleName(enclosing, visiting) : null;
+      visiting.delete(key);
+      record.qualified = prefix ? `${prefix}.${record.localName}` : record.localName;
+      record.name = record.qualified;
+      return record.qualified;
+    }
+    for (const key of [...modules.keys()]) qualifiedModuleName(key);
+    for (const record of modules.values()) { const found = moduleNames.get(record.name) || []; found.push(record.key); moduleNames.set(record.name, found); }
+    // Evaluation order of a statement: the include lines that lead to its file, then its
+    // own line. Only a uniquely included file has one such order.
+    const orderCache = new Map();
+    function orderOf(path, visiting = new Set()) {
+      if (orderCache.has(path)) return orderCache.get(path);
+      const parents = includedFrom.get(path) || [];
+      let value = null;
+      if (!parents.length) value = { root: path, lines: [] };
+      else if (parents.length === 1 && !visiting.has(path)) {
+        visiting.add(path);
+        const parent = orderOf(parents[0].path, visiting);
+        visiting.delete(path);
+        if (parent) value = { root: parent.root, lines: [...parent.lines, parents[0].line] };
+      }
+      orderCache.set(path, value); return value;
+    }
+    /** Does the first statement run before the second? Null when no order is established. */
+    function runsBefore(from, to) {
+      const left = orderOf(from.path), right = orderOf(to.path);
+      if (!left || !right || left.root !== right.root) return null;
+      const a = [...left.lines, from.line], b = [...right.lines, to.line];
+      for (let i = 0; i < Math.max(a.length, b.length); i++) {
+        const x = a[i] ?? -1, y = b[i] ?? -1;
+        if (x !== y) return x < y;
+      }
+      return false;
+    }
+    /** A call in a module or file body runs during `include`; a function body does not. */
+    function evaluatedEagerly(scope, call) {
+      if (call.deferred) return false;
+      let current = scope;
+      for (let depth = 0; current && depth < 128; depth++) {
+        if (current.symbol && current.symbol.kind !== "module") return false;
+        if (!current.parent) return true;
+        current = scopes.get(current.parent);
+      }
+      return false;
     }
     function groupForScope(scope) {
       if (!scope) return null;
@@ -153,24 +212,35 @@
       if (keys.length !== 1) return { blocked: keys.length > 1, targets: [] };
       const provider = providers[0]; return { blocked: false, targets: moduleMethods(provider.key, provider.name) || [] };
     }
+    // Every refusal states why, so an abstention can be reviewed instead of looking like a
+    // relation that was never found.
+    const refuse = reason => ({ targets: [], reason });
     function resolveBare(name, scope) {
-      const chain = scopeChain(scope); if (!chain.length) return [];
+      const chain = scopeChain(scope);
+      if (!chain.length) return refuse("No unique module or include context establishes this file's namespace");
       for (const item of chain) {
-        if (item.dynamic || item.bindings.has(name)) return [];
+        if (item.dynamic) return refuse("A computed include or eval in this scope makes its namespace ambiguous");
+        if (item.bindings.has(name)) return refuse("A local binding — parameter, assignment, loop or local declaration — shadows this name in scope");
         const methods = item.methods.get(name);
         if (methods?.length) {
           const imported = importedMethods(name, scope);
-          if (imported.blocked) return [];
-          return validTargets(methods) ? [...methods, ...imported.targets] : [];
+          if (imported.blocked) return refuse("More than one in-scope import provides this name");
+          if (!validTargets(methods)) return refuse("Only conditional declarations of this name are in scope");
+          return { targets: [...methods, ...imported.targets] };
         }
       }
-      const imported = importedMethods(name, scope); return imported.blocked ? [] : imported.targets;
+      const imported = importedMethods(name, scope);
+      if (imported.blocked) return refuse("More than one in-scope import provides this name");
+      if (!imported.targets.length) return refuse("No declaration of this name in the file's module namespace or its explicit imports");
+      return { targets: imported.targets };
     }
     function resolveQualified(name, scope) {
       const parts = name.split("."), first = parts.shift(), member = parts.pop(); let key = moduleBinding(first, scope);
-      if (!key) return [];
+      if (!key) return refuse(`No unique in-scope module binding named "${first}"`);
       if (parts.length) {
-        const full = [modules.get(key)?.name, ...parts].join("."), matches = moduleNames.get(full) || []; if (matches.length !== 1) return []; key = matches[0];
+        const full = [modules.get(key)?.name, ...parts].join("."), matches = moduleNames.get(full) || [];
+        if (matches.length !== 1) return refuse(`No unique declared module named "${full}"`);
+        key = matches[0];
       }
       let targets = [...(moduleMethods(key, member) || [])];
       // Extensions in an unrelated example or test are not automatically in
@@ -179,7 +249,8 @@
         const targetParts = definition.target.name.split("."), targetName = targetParts.pop(), targetModule = targetParts.join(".");
         if (targetName === member && targetParts.length === 1 && moduleBinding(targetModule, definition.parent) === key) targets.push(definition.target);
       }
-      return validTargets(targets) || [];
+      const valid = validTargets(targets);
+      return valid ? { targets: valid } : refuse(`Module "${modules.get(key)?.name || first}" declares no unconditional method named "${member}"`);
     }
     // Qualified extensions inside files already included by that same module
     // belong to its source method set. Merely importing a module from a test or
@@ -192,22 +263,63 @@
       const group = getGroup(moduleKey), methods = group.methods.get(name) || [];
       methods.push(definition.target); group.methods.set(name, methods);
     }
+    /** Why a `using`/`import` of a local module could not be bound, in this file's context. */
+    function moduleRefusal(fact, scope, entry) {
+      if (entry.syntaxFacts.status !== "analyzed") return "The file's syntax tree is incomplete, so this module reference is not bound";
+      if (fact.conditional) return "A conditional `using`/`import` does not establish a module binding";
+      if (!scope) return "The reference has no established lexical scope in this file";
+      const specifier = String(fact.specifier || "");
+      if (specifier.startsWith(".")) {
+        const currentName = modules.get(groupForScope(scope))?.name;
+        if (!currentName) return "A relative module specifier needs an enclosing module context, and this file has none";
+        return `No module named "${specifier}" exists relative to the enclosing module "${currentName}"`;
+      }
+      const nested = [...moduleNames.keys()].filter(name => name !== specifier && name.endsWith("." + specifier));
+      if (nested.length) return `Module "${specifier}" is declared inside another module as ${nested.map(name => `"${name}"`).join(", ")}; a bare using/import names a top-level module or package`;
+      if ((moduleNames.get(specifier) || []).length > 1) return `More than one declared module is named "${specifier}"`;
+      return `No declared local Julia module matches "${specifier}"; package modules are not part of this snapshot`;
+    }
+    // One recorded verdict per module reference: a `using`/`import` is never silently
+    // dropped, and never bound to a file that merely shares the module's basename.
+    for (const entry of inputs) for (const fact of entry.syntaxFacts.imports) {
+      if (fact.form !== "julia-module") continue;
+      const scope = scopes.get(scopeKey(entry.path, fact.owner));
+      const key = scope && !fact.conditional && entry.syntaxFacts.status === "analyzed" ? moduleTarget(fact.specifier, scope) : null;
+      const record = key && modules.get(key);
+      fact.moduleBinding = record
+        ? { status: "resolved", target: record.path, module: record.name, rule: "julia-module-include-context" }
+        : { status: "unresolved", reason: moduleRefusal(fact, scope, entry) };
+    }
     let resolvedCalls = 0, candidateTargets = 0, unresolvedCalls = 0;
     for (const entry of inputs) for (const call of entry.syntaxFacts.structure?.calls || []) {
       const scope = scopes.get(scopeKey(entry.path, call.owner));
       // Re-running enrichment must not retain stale results from an earlier
       // collection or revision.
       if (call.resolution?.kind === "source-candidates") { call.resolution = { kind: "unresolved", reason: "Julia binding has not been established for this collection" }; call.evidenceStatus = "syntax-tree"; }
-      let targets = [];
-      if (scope && entry.syntaxFacts.status === "analyzed") {
-        if (call.calleeKind === "identifier" && IDENTIFIER.test(call.name)) targets = resolveBare(call.name, scope);
-        else if (call.calleeKind === "field_expression" && QUALIFIED.test(call.name)) targets = resolveQualified(call.name, scope);
+      let targets = [], reason = null;
+      if (!scope) reason = "The call site has no established lexical scope in this file";
+      else if (entry.syntaxFacts.status !== "analyzed") reason = "The file's syntax tree is incomplete, so no binding is established";
+      else {
+        const found = call.calleeKind === "identifier" && IDENTIFIER.test(call.name) ? resolveBare(call.name, scope)
+          : call.calleeKind === "field_expression" && QUALIFIED.test(call.name) ? resolveQualified(call.name, scope)
+          : refuse("Only plain and module-qualified callees are bound; other callee expressions are not resolved");
+        targets = found.targets || []; reason = found.reason || null;
       }
       const seen = new Set(); targets = targets.filter(target => { const key = `${target.path}\0${target.index}`; if (seen.has(key)) return false; seen.add(key); return true; });
+      // A call in a module body runs during `include`, so only methods defined earlier in
+      // include order exist yet. Function bodies run later and keep every candidate.
+      if (targets.length && evaluatedEagerly(scope, call)) {
+        const visible = targets.filter(target => runsBefore({ path: target.path, line: target.line }, { path: entry.path, line: call.line }) !== false);
+        if (!visible.length) { targets = []; reason = "This call runs while its file is being included, and every source method candidate is defined later in include order"; }
+        else targets = visible;
+      }
       if (targets.length) {
         call.resolution = { kind: "source-candidates", targets: targets.map(({ conditional, ...target }) => target), reason: "Static Julia function binding identifies source method candidates; runtime multiple dispatch is not evaluated" };
         call.evidenceStatus = "dispatch-candidate"; resolvedCalls++; candidateTargets += targets.length;
-      } else unresolvedCalls++;
+      } else {
+        unresolvedCalls++;
+        if (reason) { call.resolution = { kind: "unresolved", reason }; call.evidenceStatus = "syntax-tree"; }
+      }
     }
     const report = { engine: "julia-source-bindings", resolvedCalls, candidateTargets, unresolvedCalls, limitations: [...LIMITATIONS] };
     for (const entry of inputs) entry.syntaxFacts.semantic = { ...(entry.syntaxFacts.semantic || {}), julia: report };

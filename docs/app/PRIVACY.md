@@ -7,7 +7,7 @@ Skylense has no hosted model-upload service or analytics. The static Web app ana
 - Selected local files are not uploaded. A failed remote request does not upload the current model.
 - Public GitHub file contents are cached separately in this site's local IndexedDB. Each analysis first fetches fresh repository metadata, a commit and the full file tree; cached bytes are reused only after matching that tree's Git blob hash. Local folders and arbitrary webpages never enter this content cache. Storage is capped at 128 MiB / 4,096 blobs, with at most 16 MiB per cached blob; eviction changes speed, not coverage. Clear site data to remove it.
 - Theme/motion preferences use localStorage. Saved views are isolated by model identity/revision; imported models do not overwrite bundled-example bookmarks.
-- JSON exports contain model data, source excerpts and documents. SVG exports capture the displayed graph. Review private content before sharing exports.
+- JSON exports contain model data, source excerpts and documents. SVG exports capture the displayed graph. Animated GIF/WebM/MP4 exports capture the open flow or scenario walkthrough: the cards, names, step captions and step reasons it shows. They are rendered in the browser and only downloaded; nothing is uploaded. Review private content before sharing exports.
 - Source links open the referenced site. Browser extensions, hosting access logs and agent-provider policies are outside the app's control.
 
 ## Local CLI and workbench

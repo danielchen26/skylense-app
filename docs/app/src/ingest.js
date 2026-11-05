@@ -25,7 +25,11 @@
     if (CODE[ext]) return { kind: "source", language: CODE[ext], text: true, sensitive: false };
     if (["html", "htm"].includes(ext)) return { kind: "document", language: "html", text: true, sensitive: false };
     if (["md", "mdx", "markdown"].includes(ext)) return { kind: "document", language: "markdown", text: true, sensitive: false };
-    if (TEXT.has(ext) || /^(?:readme|license|licence|copying|notice|makefile|dockerfile|gemfile|procfile)$/i.test(name)) return { kind: ["json", "yaml", "yml", "toml", "ini", "cfg", "conf", "lock"].includes(ext) ? "config" : "document", language: ext || "text", text: true, sensitive: false };
+    if (ext === "ipynb") return { kind: "document", language: "json", text: true, sensitive: false };
+    if (ext === "vue") return { kind: "source", language: "vue", text: true, sensitive: false };
+    // `.yml` and `.yaml` are one language; its id is the adapter's ("yaml"), never the suffix.
+    if (["yaml", "yml"].includes(ext)) return { kind: "config", language: "yaml", text: true, sensitive: false };
+    if (TEXT.has(ext) || /^(?:readme|license|licence|copying|notice|makefile|dockerfile|gemfile|procfile)$/i.test(name)) return { kind: ["json", "toml", "ini", "cfg", "conf", "lock"].includes(ext) ? "config" : "document", language: ext || "text", text: true, sensitive: false };
     return { kind: IMAGE.has(ext) ? "image" : ARCHIVE.has(ext) ? "archive" : ext === "pdf" ? "pdf" : BINARY.has(ext) ? "binary" : "file", language: null, text: false, sensitive: false };
   }
   // The same deterministic order controls every transport before file/content
@@ -44,6 +48,74 @@
   function comparePaths(a, b) {
     const x = typeof a === "string" ? a : a.path, y = typeof b === "string" ? b : b.path;
     return pathPriority(x) - pathPriority(y) || (x < y ? -1 : x > y ? 1 : 0);
+  }
+  /* Vendored third-party trees. One rule set, applied once per build to the accepted
+     paths and recorded in the ingestion report (`vendored`), so key-object ranking,
+     reading guides and the report agree on what is vendored. Vendored files stay in
+     the model and are analysed; consumers only rank and order them after own code.
+     A directory below the root is vendored when a structural signal says another
+     project lives there:
+       vendor-directory       named third_party, third-party, 3rdparty, vendored or
+                              bower_components (vendor/ is a built-in exclusion);
+       versioned-source-tree  named `<name>-<major>.<minor>[...]` and holding its own
+                              licence, README or build system (configure, configure.ac,
+                              CMakeLists.txt, Makefile.in, meson.build), unless a licence
+                              there equals the root licence or is unreadable (a monorepo
+                              package versioned in place);
+       foreign-license        a child of external/, deps/, lib/ or libs/ holding a
+                              licence file whose text differs from every root licence;
+       prebuilt-sdk           holding include/ plus a lib/ or bin/ with .a, .lib, .dll,
+                              .so or .dylib files.
+     A licence whose text is unavailable never counts as foreign. Only the outermost
+     vendored directory is reported. Names of specific projects play no part. */
+  const VENDOR_DIRS = new Set(["third_party", "third-party", "3rdparty", "vendored", "bower_components"]);
+  const LICENSE_PARENTS = new Set(["external", "deps", "lib", "libs"]);
+  const BUILD_SYSTEM = new Set(["configure", "configure.ac", "cmakelists.txt", "makefile.in", "meson.build"]);
+  const isLicenseName = name => /^(licen[cs]e|copying|unlicense)([._-][^/]*)?$/i.test(name);
+  const isReadmeName = name => /^readme([._-][^/]*)?$/i.test(name);
+  const VERSIONED_DIR = /^[a-z][\w.+]*?[-_]v?\d+\.\d+(\.\d+)*([-.+][\w.]+)?$/i;
+  const PREBUILT = /\.(a|lib|dll|so|dylib)$/i;
+  /** Vendored directories of a snapshot. `files`: { path, text? } per accepted file;
+   *  text is read only for licence files. Returns [{ path, signal }] sorted by path. */
+  function vendoredRoots(files) {
+    const identity = text => typeof text === "string" ? hash(text.replace(/\s+/g, " ").trim()) : null;
+    const dirs = new Map();
+    const dirOf = path => { if (!dirs.has(path)) dirs.set(path, { licenses: [], readme: false, build: false, include: false, binaries: false }); return dirs.get(path); };
+    const rootLicenses = new Set();
+    for (const file of files || []) {
+      const parts = String(file?.path || "").split("/").filter(Boolean);
+      if (!parts.length) continue;
+      const name = parts.at(-1), parent = parts.slice(0, -1).join("/");
+      if (isLicenseName(name)) {
+        const id = identity(file.text);
+        if (!parent) { if (id) rootLicenses.add(id); } else dirOf(parent).licenses.push(id);
+      }
+      if (parent && isReadmeName(name)) dirOf(parent).readme = true;
+      if (parent && BUILD_SYSTEM.has(name.toLowerCase())) dirOf(parent).build = true;
+      for (let at = 1; at < parts.length - 1; at++) {
+        const segment = parts[at].toLowerCase(), owner = parts.slice(0, at).join("/");
+        if (segment === "include") dirOf(owner).include = true;
+        if ((segment === "lib" || segment === "bin") && at === parts.length - 2 && PREBUILT.test(name)) dirOf(owner).binaries = true;
+      }
+      for (let at = 0; at < parts.length - 1; at++) if (VENDOR_DIRS.has(parts[at].toLowerCase())) dirOf(parts.slice(0, at + 1).join("/"));
+    }
+    const foreign = info => info.licenses.some(id => id && !rootLicenses.has(id));
+    const ownOrUnknown = info => info.licenses.some(id => !id || rootLicenses.has(id));
+    const signalOf = (path, info) => {
+      const parts = path.split("/"), name = parts.at(-1).toLowerCase();
+      if (VENDOR_DIRS.has(name)) return "vendor-directory";
+      if (VERSIONED_DIR.test(name) && (info.licenses.length || info.readme || info.build) && !ownOrUnknown(info)) return "versioned-source-tree";
+      if (parts.length > 1 && LICENSE_PARENTS.has(parts.at(-2).toLowerCase()) && foreign(info)) return "foreign-license";
+      if (info.include && info.binaries) return "prebuilt-sdk";
+      return null;
+    };
+    const found = [...dirs].map(([path, info]) => ({ path, signal: signalOf(path, info) })).filter(item => item.signal).sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    return found.filter(item => !found.some(other => item.path.startsWith(other.path + "/")));
+  }
+  /** The vendored directory (an item of vendoredRoots) containing a path, or null. */
+  function vendoredRootOf(path, roots) {
+    const value = String(path || "");
+    return (Array.isArray(roots) ? roots : []).find(item => value === item.path || value.startsWith(item.path + "/"))?.path || null;
   }
   function normalizePath(input) {
     if (typeof input !== "string" || input.length > 4096 || /[\u0000-\u001f\u007f]/.test(input)) return null;
@@ -114,14 +186,32 @@
   // Tokens retain source offsets. Comments, quoted data, template bodies and Python
   // triple strings cannot manufacture declarations or dependency keywords.
   function tokenize(text, python = false) {
-    const tokens = []; let i = 0, line = 1;
+    const tokens = []; let i = 0, line = 1, depth = 0;
+    const templates = [];
     const push = (kind, value, start, atLine) => tokens.push({ kind, value, start, end: i, line: atLine, endLine: line });
+    // A template literal's `${...}` substitutions are executable code, so the
+    // quoted chunks stay data while the substitutions are lexed as code. A
+    // template without substitutions is still one data token.
+    // https://tc39.es/ecma262/#sec-template-literal-lexical-components
+    function templateChunk(start, atLine) {
+      let value = "";
+      while (i < text.length) {
+        if (text[i] === "\\") { value += text.slice(i, i + 2); if (text[i + 1] === "\n") line++; i += 2; continue; }
+        if (text[i] === "`") { i++; break; }
+        if (text[i] === "$" && text[i + 1] === "{") { i += 2; templates.push(depth); break; }
+        if (text[i] === "\n") line++;
+        value += text[i++];
+      }
+      push("data", value, start, atLine);
+    }
     while (i < text.length) {
       let c = text[i], start = i, atLine = line;
+      if (!python && c === "`") { i++; templateChunk(start, atLine); continue; }
+      if (!python && c === "}" && templates.length && templates.at(-1) === depth) { templates.pop(); i++; templateChunk(start, atLine); continue; }
       if (/\s/.test(c)) { if (c === "\n") line++; i++; continue; }
       if ((python && c === "#") || (!python && text.slice(i, i + 2) === "//")) { while (i < text.length && text[i] !== "\n") i++; continue; }
       if (!python && text.slice(i, i + 2) === "/*") { i += 2; while (i < text.length && text.slice(i, i + 2) !== "*/") { if (text[i] === "\n") line++; i++; } i = Math.min(text.length, i + 2); continue; }
-      if (c === "\"" || c === "'" || (!python && c === "`")) {
+      if (c === "\"" || c === "'") {
         const triple = python && text.slice(i, i + 3) === c.repeat(3), delimiter = triple ? c.repeat(3) : c; i += delimiter.length;
         let value = "", escaped = false;
         while (i < text.length && text.slice(i, i + delimiter.length) !== delimiter) {
@@ -131,7 +221,7 @@
         }
         const closed = text.slice(i, i + delimiter.length) === delimiter;
         if (closed) i += delimiter.length;
-        push(triple || c === "`" || escaped || !closed ? "data" : "string", value, start, atLine); continue;
+        push(triple || escaped || !closed ? "data" : "string", value, start, atLine); continue;
       }
       if (!python && c === "/") {
         const prev = tokens[tokens.length - 1], before = tokens[tokens.length - 2];
@@ -146,32 +236,260 @@
         }
       }
       if (/[\p{L}_$]/u.test(c)) { i++; while (i < text.length && /[\p{L}\p{N}_$]/u.test(text[i])) i++; push("word", text.slice(start, i), start, atLine); continue; }
+      if (c === "{") depth++; else if (c === "}") depth--;
       i++; push("punct", c, start, atLine);
     }
     return tokens;
   }
+  function lexicalFunctionContract(text, tokens, nameIndex, python, kind = "function", path = "", languageName = "") {
+    const S = root.SkylenseSourceContracts;
+    const engine = "lexical", language = python ? "python" : (languageName || "javascript");
+    const typed = language === "typescript" || language === "tsx" || /\.tsx?$/i.test(path);
+    if (kind !== "function") return { inputs: [], outputs: [], sourceContract: S ? S.notApplicable(language, engine, "Not a function declaration.") : undefined };
+    const inputs = [], outputs = [];
+    let open = -1;
+    for (let k = nameIndex + 1; k < tokens.length; k++) {
+      const token = tokens[k], value = token.value, next = tokens[k + 1];
+      if (token.kind === "punct" && value === "(") { open = k; break; }
+      if (python && token.kind === "punct" && value === ":") break;
+      if (!python && token.kind === "punct" && value === "=" && next?.kind === "punct" && next.value === ">") {
+        const ident = tokens[k - 1];
+        if (ident?.kind === "word") {
+          const piece = text.slice(ident.start, ident.end);
+          if (piece) inputs.push(piece);
+        }
+        const sourceContract = S ? S.contract({
+          language, engine,
+          parameters: S.statusBlock("complete", inputs.length && ident ? [S.itemFromRange(path, text, ident.start, ident.end, ident.line, ident.endLine)] : []),
+          returns: S.statusBlock("unannotated", []),
+        }) : undefined;
+        return { inputs, outputs, sourceContract };
+      }
+      if (!python && token.kind === "punct" && (value === "{" || value === ";")) break;
+    }
+    if (open < 0) return { inputs, outputs, sourceContract: S ? S.contract({ language, engine, parameters: S.statusBlock("unsupported", [], "Lexical scanner did not find a parameter list."), returns: S.statusBlock("unsupported", [], "Lexical scanner did not find a return annotation.") }) : undefined };
+    let depth = 0, angle = 0, close = -1, start = open + 1, mode = "name";
+    const paramSpans = [];
+    const splitHere = (k) => {
+      if (start < k) {
+        const from = tokens[start], to = tokens[k - 1];
+        const piece = text.slice(from.start, to.end);
+        if (piece && piece.trim() !== "/") { inputs.push(piece); paramSpans.push([from.start, to.end, from.line, to.endLine]); }
+      }
+      start = k + 1;
+    };
+    const genericOpen = (k) => {
+      if (!typed) return false;
+      if (mode === "type") return true;
+      if (mode !== "default") return false;
+      let angleDepth = 1, nest = 0;
+      for (let i = k + 1; i < tokens.length && angleDepth > 0; i++) {
+        if (tokens[i].kind !== "punct") continue;
+        const v = tokens[i].value;
+        if (v === "<") angleDepth++;
+        else if (v === ">" && tokens[i - 1]?.value !== "=") angleDepth--;
+        else if (["(", "[", "{"].includes(v)) nest++;
+        else if ([")", "]", "}"].includes(v)) {
+          if (!nest) return false;
+          nest--;
+        }
+      }
+      if (angleDepth !== 0) return false;
+      let i = k + 1, depth = 1;
+      while (i < tokens.length && depth > 0) {
+        if (tokens[i].kind === "punct") {
+          if (tokens[i].value === "<") depth++;
+          else if (tokens[i].value === ">" && tokens[i - 1]?.value !== "=") depth--;
+        }
+        i++;
+      }
+      const next = tokens[i];
+      return next && (next.value === "(" || next.value === "{" );
+    };
+    for (let k = open; k < tokens.length; k++) {
+      const token = tokens[k];
+      if (token.kind !== "punct") continue;
+      const value = token.value, next = tokens[k + 1];
+      if (value === "<" && (angle > 0 || genericOpen(k))) angle++;
+      else if (value === ">" && angle && !(tokens[k - 1]?.kind === "punct" && tokens[k - 1].value === "=")) angle--;
+      else if (["(", "[", "{"].includes(value)) depth++;
+      else if ([")", "]", "}"].includes(value)) {
+        depth--;
+        if (value === ")" && depth === 0) { close = k; break; }
+      } else if (value === ":" && depth === 1 && angle === 0 && mode === "name") mode = "type";
+      else if (value === "=" && depth === 1 && angle === 0 && next?.value !== ">") mode = "default";
+      else if (value === "," && depth === 1 && angle === 0) { splitHere(k); mode = "name"; }
+    }
+    if (close >= 0 && start < close) splitHere(close);
+    let returnStatus = "unannotated", returnSpan = null;
+    if (close >= 0 && python && tokens[close + 1]?.value === "-" && tokens[close + 2]?.value === ">") {
+      let end = close + 3;
+      while (end < tokens.length && !(tokens[end].kind === "punct" && tokens[end].value === ":")) end++;
+      if (end > close + 3) {
+        const piece = text.slice(tokens[close + 3].start, tokens[end - 1].end);
+        if (piece) { outputs.push(piece); returnStatus = "explicit"; returnSpan = [tokens[close + 3].start, tokens[end - 1].end, tokens[close + 3].line, tokens[end - 1].endLine]; }
+      }
+    }
+    if (close >= 0 && !python && tokens[close + 1]?.kind === "punct" && tokens[close + 1].value === ":") {
+      let end = close + 2, nested = 0, nestedAngle = 0;
+      const parenStack = [];
+      let lastClosed = null;
+      const typeObjectStart = at => {
+        const prev = tokens[at - 1];
+        if (!prev || prev.kind !== "punct") return false;
+        if ([":", "|", "&", "(", ",", "=", "?"].includes(prev.value)) return true;
+        if (prev.value === ">" && tokens[at - 2]?.value === "=") return true;
+        return false;
+      };
+      const classifyParen = (open, closeAt) => {
+        let depth = 0, sawColon = false, sawArrow = false, inner = 0;
+        for (let i = open + 1; i < closeAt; i++) {
+          const tok = tokens[i];
+          if (tok.kind === "punct") {
+            if (["(", "[", "{"].includes(tok.value)) depth++;
+            else if ([")", "]", "}"].includes(tok.value)) depth--;
+            else if (tok.value === ":" && depth === 0) sawColon = true;
+            else if (tok.value === "=" && tokens[i + 1]?.value === ">" && depth === 0) sawArrow = true;
+          }
+          inner++;
+        }
+        if (sawArrow) return "type";
+        if (sawColon || inner === 0) return "params";
+        return "type";
+      };
+      while (end < tokens.length) {
+        const token = tokens[end];
+        if (token.kind === "punct") {
+          if (typed && token.value === "<") nestedAngle++;
+          else if (typed && token.value === ">" && tokens[end - 1]?.value !== "=") { if (nestedAngle) nestedAngle--; }
+          else if (token.value === "{") {
+            if (!nested && !nestedAngle) {
+              if (typeObjectStart(end)) nested++;
+              else break;
+            } else nested++;
+          } else if (token.value === "(") { parenStack.push({ index: end, nested }); nested++; }
+          else if (token.value === "[") nested++;
+          else if ([")", "]", "}"].includes(token.value)) {
+            if (!nested) break;
+            nested--;
+            if (token.value === ")" && parenStack.length && parenStack.at(-1).nested === nested) {
+              const open = parenStack.pop();
+              lastClosed = { open: open.index, close: end, kind: classifyParen(open.index, end) };
+            }
+          } else if (token.value === ";" && !nested && !nestedAngle) break;
+          else if (token.value === "=" && tokens[end + 1]?.value === ">" && !nested && !nestedAngle) {
+            if (lastClosed?.kind === "params" && lastClosed.close === end - 1) { end += 2; continue; }
+            break;
+          } else if (token.value === "," && !nested && !nestedAngle) break;
+        }
+        end++;
+      }
+      if (end > close + 2) {
+        const piece = text.slice(tokens[close + 2].start, tokens[end - 1].end);
+        if (piece) { outputs.push(piece); returnStatus = "explicit"; returnSpan = [tokens[close + 2].start, tokens[end - 1].end, tokens[close + 2].line, tokens[end - 1].endLine]; }
+      }
+    }
+    const sourceContract = S ? S.contract({
+      language, engine,
+      parameters: S.statusBlock("complete", paramSpans.map(span => S.itemFromRange(path, text, ...span))),
+      returns: S.statusBlock(returnStatus, returnSpan ? [S.itemFromRange(path, text, ...returnSpan)] : []),
+    }) : undefined;
+    return { inputs, outputs, sourceContract };
+  }
   function codeFacts(text, language) {
+    const S = root.SkylenseSourceContracts;
+    if (S?.usingLineIndex) return S.usingLineIndex(text, () => codeFactsFrom(text, language));
+    return codeFactsFrom(text, language);
+  }
+  /** Token index ranges where `require` is rebound, so a `require(...)` call
+   *  inside one is an ordinary call and not a CommonJS module reference. The
+   *  syntax-tree profile derives the same rule from real scopes.
+   *  https://nodejs.org/api/modules.html#requireid */
+  function requireShadowRanges(tokens) {
+    const closing = new Map(), open = [], ranges = [], braces = [];
+    for (let k = 0; k < tokens.length; k++) {
+      if (tokens[k].kind !== "punct") continue;
+      const value = tokens[k].value;
+      if ("([{".includes(value)) open.push(k);
+      else if (")]}".includes(value)) { const from = open.pop(); if (from !== undefined) closing.set(from, k); }
+    }
+    const binds = (from, to) => { for (let k = from + 1; k < to; k++) if (tokens[k].kind === "word" && tokens[k].value === "require" && tokens[k - 1]?.value !== ".") return true; return false; };
+    /** End of the body that follows a parameter list, including a concise arrow body. */
+    const bodyEnd = at => {
+      let k = at;
+      if (tokens[k]?.value === "=" && tokens[k + 1]?.value === ">") k += 2;
+      if (tokens[k]?.value === "{") return closing.get(k) ?? tokens.length;
+      while (k < tokens.length && tokens[k].value !== ";") k++;
+      return k;
+    };
+    for (let k = 0; k < tokens.length; k++) {
+      const token = tokens[k], value = token.value, punct = token.kind === "punct", word = token.kind === "word";
+      if (punct && value === "{") braces.push(k);
+      else if (punct && value === "}") braces.pop();
+      const enclosing = braces.length ? braces[braces.length - 1] : -1;
+      const block = () => [enclosing < 0 ? 0 : enclosing, enclosing < 0 ? tokens.length : closing.get(enclosing) ?? tokens.length];
+      // A parameter list binding `require`: arrow parameters, or a parameter
+      // list followed by a body. `if (require)` and `run(require)` are neither.
+      if (punct && value === "(" && closing.has(k) && binds(k, closing.get(k))) {
+        const end = closing.get(k), after = tokens[end + 1]?.value, keyword = tokens[k - 1]?.kind === "word" ? tokens[k - 1].value : "";
+        const parameters = (after === "=" && tokens[end + 2]?.value === ">") || (after === "{" && !["if", "while", "for", "switch"].includes(keyword));
+        if (parameters) ranges.push([k, bodyEnd(end + 1)]);
+        continue;
+      }
+      if (word && value === "require" && tokens[k + 1]?.value === "=" && tokens[k + 2]?.value === ">") { ranges.push([k, bodyEnd(k + 1)]); continue; }
+      // A declaration or assignment of the name rebinds it for its whole block.
+      if (word && ["const", "let", "var", "function", "class"].includes(value) && tokens[k + 1]?.value === "require") ranges.push(block());
+      else if (word && value === "require" && tokens[k - 1]?.value !== "." && tokens[k + 1]?.value === "=" && ![">", "="].includes(tokens[k + 2]?.value)) ranges.push(block());
+    }
+    return ranges;
+  }
+  /** Source text of the argument list opened at `at`, for reporting a computed
+   *  specifier that only a runtime evaluation could resolve. */
+  function argumentText(text, tokens, at) {
+    let depth = 0, end = at;
+    for (let k = at; k < tokens.length; k++) {
+      const value = tokens[k].value;
+      if (tokens[k].kind !== "punct") continue;
+      if ("([{".includes(value)) depth++;
+      else if (")]}".includes(value) && !--depth) { end = k; break; }
+    }
+    if (end <= at + 1) return "";
+    return text.slice(tokens[at + 1].start, tokens[end - 1].end).replace(/\s+/g, " ").trim().slice(0, 120);
+  }
+  function codeFactsFrom(text, language) {
     const python = language === "python", tokens = tokenize(text, python), symbols = [], imports = [];
+    const shadows = python ? [] : requireShadowRanges(tokens);
+    const shadowedRequire = index => shadows.some(([from, to]) => index >= from && index <= to);
     for (let i = 0; i < tokens.length; i++) {
       const t = tokens[i], next = tokens[i + 1], prev = tokens[i - 1];
       if (t.kind !== "word") continue;
       if ((python && ["def", "class"].includes(t.value)) || (!python && ["function", "class", "interface", "enum"].includes(t.value))) {
         const name = next?.value === "*" ? tokens[i + 2] : next;
-        if (name?.kind === "word" && (!prev || prev.value !== ".")) symbols.push({ name: name.value, kind: t.value === "def" ? "function" : t.value, line: t.line, endLine: name.endLine });
+        if (name?.kind === "word" && (!prev || prev.value !== ".")) {
+          const kind = t.value === "def" ? "function" : t.value;
+          const contract = lexicalFunctionContract(text, tokens, name ? i + (tokens[i + 1]?.value === "*" ? 2 : 1) : i, python, kind === "function" ? "function" : kind, "", language);
+          symbols.push({ name: name.value, kind, line: t.line, endLine: name.endLine, inputs: contract.inputs, outputs: contract.outputs, sourceContract: contract.sourceContract });
+        }
       }
       if (!python && ["const", "let", "var"].includes(t.value) && next?.kind === "word") {
         // A lexical arrow-function declaration; scan only this statement, at most 60 tokens.
         const slice = tokens.slice(i + 2, i + 62); let arrow = false;
         for (let k = 0; k < slice.length - 1; k++) { if (slice[k].value === ";" || ["const", "let", "var"].includes(slice[k].value)) break; if (slice[k].value === "=" && slice[k + 1].value === ">") { arrow = true; break; } }
-        if (arrow) symbols.push({ name: next.value, kind: "function", line: t.line, endLine: next.endLine });
+        if (arrow) {
+          const contract = lexicalFunctionContract(text, tokens, i + 1, false, "function", "", language);
+          symbols.push({ name: next.value, kind: "function", line: t.line, endLine: next.endLine, inputs: contract.inputs, outputs: contract.outputs, sourceContract: contract.sourceContract });
+        }
       }
       if (python && ["import", "from"].includes(t.value)) {
         // Python import statements must begin a physical line (possibly after a
         // semicolon/colon). Parenthesized imports may span lines.
         if (prev && prev.endLine === t.line && ![";", ":"].includes(prev.value)) continue;
+        // A backslash before the newline joins the physical lines, so the
+        // statement continues and the backslash is not part of any name.
+        // https://docs.python.org/3/reference/lexical_analysis.html#explicit-line-joining
         let end = i + 1, depth = 0;
-        while (end < tokens.length) { const x = tokens[end]; if (!depth && (x.line > tokens[end - 1].endLine || x.value === ";")) break; if (x.value === "(") depth++; if (x.value === ")") depth--; end++; }
-        const part = tokens.slice(i + 1, end);
+        while (end < tokens.length) { const x = tokens[end], before = tokens[end - 1]; if (!depth && (x.value === ";" || (x.line > before.endLine && before.value !== "\\"))) break; if (x.value === "(") depth++; if (x.value === ")") depth--; end++; }
+        const part = tokens.slice(i + 1, end).filter(x => x.value !== "\\");
         if (t.value === "from") {
           const at = part.findIndex((x) => x.kind === "word" && x.value === "import");
           if (at < 0) continue;
@@ -187,8 +505,15 @@
       }
       if (!python && ["import", "export", "require"].includes(t.value) && prev?.value !== ".") {
         if (t.value === "require" || (t.value === "import" && next?.value === "(")) {
-          const target = tokens[i + 2];
-          if (next?.value === "(" && target?.kind === "string" && [")", ","].includes(tokens[i + 3]?.value)) imports.push({ specifier: target.value, form: t.value === "require" ? "commonjs-literal" : "dynamic-literal", line: t.line, endLine: target.endLine });
+          if (t.value === "require" && shadowedRequire(i)) continue;
+          const target = tokens[i + 2], form = t.value === "require" ? "commonjs" : "dynamic";
+          if (next?.value === "(" && target?.kind === "string" && [")", ","].includes(tokens[i + 3]?.value)) imports.push({ specifier: target.value, form: form + "-literal", line: t.line, endLine: target.endLine });
+          // A computed specifier is decided when the expression runs. It is
+          // reported once, as this unsupported reference, never guessed away.
+          else if (next?.value === "(" && target && target.value !== ")") {
+            const expression = argumentText(text, tokens, i + 1);
+            if (expression) imports.push({ specifier: expression, form: form + "-expression", line: t.line, endLine: target.endLine });
+          }
         } else if (t.value === "import" && next?.kind === "string") imports.push({ specifier: next.value, form: "javascript-static", line: t.line, endLine: next.endLine });
         else {
           for (let j = i + 1; j < Math.min(tokens.length, i + 160); j++) {
@@ -283,7 +608,32 @@
       if (clipped.truncated) { item.excerpt = clipped.text; item.excerptTruncated = true; evidenceTruncated++; }
       return item;
     }
-    const noteSkip = (path, reason) => { if (report.skipped.length < 1000) report.skipped.push({ path, reason }); };
+    // Build-level drops are part of source accounting, not just a preview list.
+    // The ledger module is optional: an embedder that loads only ingest.js still
+    // builds a model, it just cannot claim complete source accounting.
+    const accounting = root.SkylenseSourceAccounting || null;
+    const BUILD_REASON = reason => /^Excluded generated/.test(reason) ? "builtin-exclusion"
+      : /^File count limit/.test(reason) ? "file-count-limit"
+      : /entity limit/i.test(reason) ? "traversal-limit"
+      : /budget/i.test(reason) ? "text-budget-exhausted"
+      : /^Invalid/.test(reason) ? "unreadable"
+      : null;
+    const noteSkip = (path, reason) => {
+      if (report.skipped.length < 1000) report.skipped.push({ path, reason });
+      // A duplicate descriptor names an already-accounted path; re-recording it
+      // would double-count rather than account for anything new.
+      const mapped = /^Duplicate path/.test(reason) ? null : BUILD_REASON(reason);
+      // No source kind here: the traversal already classified this path, and a
+      // build-level drop knows nothing better about what kind of thing it was.
+      if (path && mapped && accounting && report.accounting) accounting.record(report.accounting, path, { reason: mapped, authoritative: true });
+    };
+    // Per-path source kind, so folder, Git, provider and webpage inventories are
+    // comparable instead of every transport inventing its own vocabulary.
+    const ENTRY_KIND = entry => {
+      const declared = entry && entry.sourceKind;
+      if (declared && (!accounting || accounting.SOURCE_KINDS.includes(declared))) return declared;
+      return options.kind === "repository" ? "remote-blob" : options.kind === "webpage" ? "remote-page" : options.source === "browser-files" ? "browser-file" : "file";
+    };
     const id = idFactory(), rootId = id("dir", "."), nodes = [], hierarchy = [], documents = [], edges = [], accepted = new Map(), directoryIds = new Map([["", rootId]]);
     const title = typeof options.title === "string" && options.title.trim() ? options.title.trim().slice(0, 240) : "Imported workspace";
     const group = { id: rootId, label: title, color: "#5b93be", kind: "container", parentId: null, group: rootId, level: 1, path: "", description: "Source hierarchy · expand folders to inspect files. Containment does not imply execution." };
@@ -314,12 +664,12 @@
       if (directory) { accepted.set(entry.path, { entry, directory: true }); continue; }
       fileCount++; const info = classifyPath(entry.path), nodeId = id("file", entry.path), url = safeUrl(entry.url);
       const node = { id: nodeId, label: baseName(entry.path), path: entry.path, kind: info.kind === "source" ? "module" : info.kind === "config" ? "schema" : info.text ? "document" : "file", parentId, group: rootId, level: entry.path.split("/").length + 1, language: info.language, fileKind: info.kind, size: Number.isSafeInteger(entry.size) && entry.size >= 0 ? entry.size : typeof entry.text === "string" ? encoder.encode(entry.text).length : null, functions: [], inputs: [], outputs: [], evidence: [], documentIds: [], evidenceStatus: "metadata-only", summary: "File metadata only; contents were not analyzed.", ...(url ? { url } : {}) };
-      let text = null, facts = { symbols: [], imports: [] };
+      let text = null, textClipped = false, facts = { symbols: [], imports: [] };
       if (typeof entry.text === "string" && !entry.text.includes("\0") && (info.text || info.kind === "file") && !["binary", "unreadable", "symlink", "metadata-only", "excluded"].includes(entry.status)) {
         const remaining = limits.maxTotalBytes - report.textBytes;
         if (remaining > 0) {
           if (complete && (encoder.encode(entry.text).length > limits.maxFileBytes || encoder.encode(entry.text).length > remaining)) resourceFailure("Source content safety ceiling reached.");
-          const clipped = truncateBytes(entry.text, Math.min(limits.maxFileBytes, remaining)); text = clipped.text; report.textBytes += clipped.bytes;
+          const clipped = truncateBytes(entry.text, Math.min(limits.maxFileBytes, remaining)); text = clipped.text; textClipped = clipped.truncated; report.textBytes += clipped.bytes;
           const truncated = clipped.truncated || entry.status === "truncated" || entry.truncated === true; if (truncated) report.truncatedFiles++;
           const preview = truncateBytes(text, 256 * 1024);
           const docId = id("doc", entry.path); documents.push({ id: docId, title: entry.path, path: entry.path, content: preview.text, status: truncated || preview.truncated ? "truncated" : "source", previewTruncated: preview.truncated, sourceBytes: clipped.bytes, ...(url ? { url } : {}) }); node.documentIds.push(docId);
@@ -336,6 +686,10 @@
             if (info.language === "python" && root.SkylensePythonStructure) {
               facts.structure = root.SkylensePythonStructure.analyze(text);
               facts.symbols = facts.structure.symbols;
+              // The same module-binding list a syntax-tree parse produces, so
+              // the resolvers apply one import rule in both profiles.
+              facts.moduleBindings = facts.structure.moduleBindings || [];
+              facts.moduleBindingsDynamic = Boolean(facts.structure.moduleBindingsDynamic);
               if (facts.structure.truncated) report.warnings.push(`${entry.path}: Python structure extraction reached its bounded budget.`);
             }
           }
@@ -344,6 +698,10 @@
             if (facts.truncated) report.warnings.push(`${entry.path}: Julia structure extraction reached its bounded budget.`);
           }
           else if (["html", "markdown"].includes(info.language)) facts = documentFacts(text, info.language, lines);
+          if (root.SkylenseSemanticDWave) {
+            const extra = root.SkylenseSemanticDWave.collect(entry.path, text, info.language);
+            if (extra.length) facts.imports = [...(facts.imports || []), ...extra];
+          }
           if (complete && (facts.truncated || facts.structure?.truncated)) resourceFailure(entry.path + ": syntax extraction reached its safety ceiling.");
           const parser = entry.syntaxFacts?.parser || (["python", "javascript", "typescript"].includes(info.language) || (info.language === "julia" && root.SkylenseJuliaStructure) ? info.language + "-lexical" : ["html", "markdown"].includes(info.language) ? "document-structure" : "text-preview");
           const status = entry.syntaxFacts?.diagnostics?.length || truncated ? "partial" : entry.syntaxFacts?.status || (parser === "text-preview" ? "preview-only" : parser === "document-structure" ? "document-structure" : "analyzed");
@@ -352,7 +710,7 @@
         } else { if (complete) resourceFailure("Source content safety ceiling reached."); noteSkip(entry.path, "Text budget exhausted; metadata retained"); }
       }
       if (text === null) { report.metadataOnlyFiles++; node.summary = `${info.kind} · ${entry.status || "metadata only"}${node.size !== null ? " · " + node.size + " bytes" : ""}`; node.analysis = { parser: "metadata-only", status: "metadata-only", diagnostics: [], unresolvedCount: 0 }; }
-      nodes.push(node); accepted.set(entry.path, { entry, node, text, facts, url });
+      nodes.push(node); accepted.set(entry.path, { entry, node, text, textClipped, facts, url });
     }
     const fileMap = new Map([...accepted].filter(([, value]) => value.node));
     // Allocate declaration previews fairly across files. Documentation has its
@@ -365,7 +723,11 @@
       const rounds = Math.min(perFile, collection.reduce((n, [, value]) => Math.max(n, value.facts.symbols.length), 0));
       for (let index = 0; index < rounds && used < total; index++) for (const [path, value] of collection) {
         const symbol = value.facts.symbols[index]; if (!symbol || used >= total) continue;
-        value.node.functions.push({ name: symbol.name, qualifiedName: symbol.qualifiedName || symbol.name, kind: symbol.kind, description: `${value.facts.parser?.engine === "tree-sitter" ? "Syntax-tree" : "Lexical"} ${symbol.kind} declaration at line ${symbol.line}; no runtime or type-checking claim.`, inputs: [], outputs: [], evidenceStatus: "lexical-candidate", evidence: [evidence(path, value.text, symbol.line, symbol.endLine, value.url)] }); used++;
+        const inputs = Array.isArray(symbol.inputs) ? symbol.inputs.slice() : [], outputs = Array.isArray(symbol.outputs) ? symbol.outputs.slice() : [];
+        if (inputs.length > 2000) throw new Error(`Function ${symbol.name} has more than 2000 parameters; complete indexing stopped.`);
+        const sourceContract = symbol.sourceContract ? JSON.parse(JSON.stringify(symbol.sourceContract)) : undefined;
+        const description = symbol.summary || `${value.facts.parser?.engine === "tree-sitter" ? "Syntax-tree" : "Lexical"} ${symbol.kind} declaration at line ${symbol.line}; signature contracts are source-backed when present.`;
+        value.node.functions.push({ name: symbol.name, qualifiedName: symbol.qualifiedName || symbol.name, kind: symbol.kind, description, inputs, outputs, ...(sourceContract ? { sourceContract } : {}), evidenceStatus: value.facts.parser?.engine === "tree-sitter" ? "syntax-tree" : "lexical-candidate", evidence: [evidence(path, value.text, symbol.line, symbol.endLine, value.url)] }); used++;
       }
       if (collection === documentFiles) documentSymbols = used;
       symbolsUsed += used;
@@ -402,7 +764,8 @@
           hierarchy.push(boundary); value.boundaries.set(index, boundary); symbolContainers++; symbolParent = boundary.id; symbolLevel++;
         }
         const bodyEnd = Math.max(symbol.endLine, Math.min(symbol.bodyEndLine || symbol.endLine, symbol.line + 31));
-        nodes.push({ id: symbolId, label: symbol.name, qualifiedName: preview.qualifiedName, path, kind: symbol.kind === "section" ? "document" : symbol.kind === "struct" ? "class" : ["class", "function", "interface", "module"].includes(symbol.kind) ? symbol.kind : "schema", sourceRole: "symbol", parentId: symbolParent, group: rootId, level: symbolLevel, summary: `${preview.qualifiedName} · ${symbol.kind} · lines ${symbol.line}–${symbol.bodyEndLine || symbol.endLine}. Static source declaration; not a runtime trace.`, functions: [], inputs: [], outputs: [], documentIds: [...value.node.documentIds], evidenceStatus: "source-text", evidence: [evidence(path, value.text, symbol.line, bodyEnd, value.url)], sourceSpan: { lineStart: symbol.line, lineEnd: symbol.bodyEndLine || symbol.endLine }, ...(value.node.url ? { url: value.node.url } : {}) });
+        const clonedContract = preview.sourceContract ? JSON.parse(JSON.stringify(preview.sourceContract)) : undefined;
+        nodes.push({ id: symbolId, label: symbol.name, qualifiedName: preview.qualifiedName, path, kind: symbol.kind === "section" ? "document" : symbol.kind === "struct" ? "class" : ["class", "function", "interface", "module"].includes(symbol.kind) ? symbol.kind : "schema", sourceRole: "symbol", parentId: symbolParent, group: rootId, level: symbolLevel, summary: symbol.summary || `${preview.qualifiedName} · ${symbol.kind} · lines ${symbol.line}–${symbol.bodyEndLine || symbol.endLine}. Static source declaration; not a runtime trace.`, functions: [], inputs: preview.inputs || [], outputs: preview.outputs || [], ...(clonedContract ? { sourceContract: clonedContract } : {}), documentIds: [...value.node.documentIds], evidenceStatus: "source-text", evidence: [evidence(path, value.text, symbol.line, bodyEnd, value.url)], sourceSpan: { lineStart: symbol.line, lineEnd: symbol.bodyEndLine || symbol.endLine }, ...(value.node.url ? { url: value.node.url } : {}) });
         preview.nodeId = symbolId; value.symbolNodes.set(index, symbolId); navigableSymbols++;
         if (collection === documentFiles) documentNavigation++;
       }
@@ -417,10 +780,88 @@
       const found = juliaModules.get(symbol.name) || []; found.push(path); juliaModules.set(symbol.name, found);
     }
     function choose(candidates) { const matches = [...new Set(candidates.filter((path) => path && fileMap.has(path)))]; return matches.length === 1 ? { targets: matches } : { targets: [], reason: matches.length > 1 ? "Ambiguous local resolution" : "External, unavailable, excluded or unresolved target" }; }
+    // Paths the traversal or this build saw but left out of fileMap (built-in exclusions,
+    // ignore rules, read failures), so a binder can refuse a project whose sources are
+    // not all here. A symlink that was not followed may be a directory. `complete` is
+    // false when the ledger stopped retaining path detail or discovery stopped early.
+    const droppedPaths = () => {
+      const ledger = report.accounting, dropped = new Map(), skipped = Array.isArray(options.report?.skipped) ? options.report.skipped : [];
+      for (const item of [...skipped, ...report.skipped]) if (item?.path && !fileMap.has(String(item.path))) dropped.set(String(item.path), null);
+      if (ledger && Array.isArray(ledger.paths)) for (const item of ledger.paths) if (item?.path && !fileMap.has(item.path)) dropped.set(item.path, ["directory", "symlink", "git-symlink"].includes(item.sourceKind) || /symlink/.test(item.reason || ""));
+      return { entries: [...dropped].map(([path, directory]) => ({ path, directory })), complete: !(ledger?.detailDropped > 0) && !(ledger?.unenumerated?.length) && skipped.length <= 1000 && report.skipped.length < 1000 };
+    };
     const extendedResolver = root.SkylenseSourceResolver?.create(fileMap, { joinRelative, choose });
+    const projectResolver = root.SkylenseSemanticProject?.create(fileMap, { joinRelative, choose, droppedPaths });
+    // Semantic resolution cache seam (plan §10). Keys carry the full manifest
+    // fingerprint because every resolver here reads the whole included file
+    // set, so a hit is valid exactly when the manifest is unchanged.
+    const semanticIndex = options.semanticIndex && options.cache !== false ? options.semanticIndex : null;
+    // Resolvers also read what the snapshot left out (an ignored header may hide the
+    // copy an include would bind), so the dropped-path set and whether it is complete
+    // are part of the project context, not just the included files.
+    const semanticManifest = root.SkylenseAnalysisRuntime
+      ? (() => {
+        const dropped = droppedPaths();
+        const rows = dropped.entries.map(item => `${item.path}\0${item.directory}`).sort();
+        return root.SkylenseAnalysisRuntime.fingerprint([...fileMap].map(([path, file]) => ({ path, decodedTextHash: root.SkylenseAnalysisIR.sha256Text(file.text || "") })),
+          { droppedPaths: root.SkylenseAnalysisIR.sha256Text(rows.join("\n")), droppedComplete: dropped.complete });
+      })()
+      : null;
+    const semanticKeys = new Map(), semanticHits = new Map(), semanticPuts = new Map(), importTrace = new Map();
+    if (semanticIndex) for (const [path, value] of fileMap) {
+      if (typeof value.text !== "string") continue;
+      semanticKeys.set(path, semanticIndex.semanticKey({ path, decodedTextHash: root.SkylenseAnalysisIR.sha256Text(value.text) }, value.node.language, semanticManifest));
+    }
+    /* A cached verdict is reused only for the very fact it was computed for. Resolvers
+       read context fields beyond form and specifier (a PHP namespace and use kind, a
+       shell anchor and caveat, a C# directive's position inside its namespace), so the
+       key is every field of the fact. The store is per file and is reused only while
+       that file's bytes are unchanged, so positions in the key cost no reuse. */
+    const factKey = fact => JSON.stringify(Object.keys(fact).sort().map(name => [name, fact[name]]));
+    const plainResolution = resolution => resolution && typeof resolution === "object" ? JSON.parse(JSON.stringify(resolution)) : resolution;
+    /** A resolver verdict that carries its own status, i.e. a rule ran and decided.
+     *  `unhandled` means no rule covered the fact and is not a decision. */
+    const decidedVerdict = verdict => verdict && typeof verdict.status === "string" && verdict.status !== "unhandled" ? verdict : null;
     function resolve(path, fact, entry) {
+      const key = factKey(fact);
+      let store = semanticHits.get(path);
+      if (store === undefined && semanticIndex && semanticKeys.has(path)) {
+        const hit = semanticIndex.getSemantic(semanticKeys.get(path));
+        if (hit && hit.version === semanticIndex.version && hit.map && typeof hit.map === "object") { store = hit.map; semanticHits.set(path, store); }
+      }
+      let resolution;
+      if (store && Object.prototype.hasOwnProperty.call(store, key)) resolution = plainResolution(store[key]);
+      else {
+        resolution = computeResolve(path, fact, entry);
+        // The project context this answer was computed against travels with it,
+        // so a cached resolution states exactly what it can be re-verified against.
+        if (resolution && typeof resolution === "object" && !resolution.ignored && semanticManifest) resolution.projectContextHash = semanticManifest;
+        if (semanticIndex && semanticKeys.has(path)) {
+          let put = semanticPuts.get(path);
+          if (!put) { put = store ? { ...store } : {}; semanticPuts.set(path, put); }
+          put[key] = plainResolution(resolution);
+        }
+      }
+      // The import graph describes this run's imports whether or not the
+      // resolution came from the cache; negative lookups (a null target) are
+      // what makes provider additions and deletions dirty their consumers.
+      const trace = importTrace.get(path) || []; importTrace.set(path, trace);
+      trace.push(...(Array.isArray(resolution?.targets) && resolution.targets.length ? resolution.targets : [null]));
+      return resolution;
+    }
+    function computeResolve(path, fact, entry) {
       const dir = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "", spec = fact.specifier;
-      const extended = extendedResolver?.(path, fact, entry); if (extended) return extended;
+      // A verdict whose rule ran owns the answer: proven targets, a deliberate
+      // candidate set, or a stated abstention. Only `unhandled` — no rule covered
+      // this fact — lets a weaker resolver answer, so a path or basename search
+      // can never overturn an adapter's refusal to guess.
+      const project = projectResolver?.(path, fact, entry);
+      if (decidedVerdict(project) || project?.targets?.length) return project;
+      const extended = extendedResolver?.(path, fact, entry);
+      if (decidedVerdict(extended) || extended?.targets?.length) return extended;
+      if (project) return project;
+      if (extended) return extended;
+      const dwave = root.SkylenseSemanticDWave?.resolve?.(path, fact, { joinRelative, choose }); if (dwave) return dwave;
       if (fact.form === "julia-include") {
         if (/^(?:[a-z]:|\/|[a-z][\w+.-]*:\/\/)/i.test(spec)) return { targets: [], reason: "Julia include is outside the selected relative source tree" };
         return choose([joinRelative(dir, spec)]);
@@ -432,6 +873,10 @@
         }
         return { targets: [], reason: "No unique included top-level Julia module declaration; package and relative-module bindings are not resolved" };
       }
+      // A computed module specifier is decided by the running program. No
+      // resolver may answer it, and the reference stays individually reported.
+      if (["dynamic-expression", "commonjs-expression"].includes(fact.form))
+        return { targets: [], reason: `The module specifier is the expression \`${spec}\`, whose value is only known when the program runs; no code was executed, so this reference has no static target` };
       if (fact.form.startsWith("python")) {
         let module = spec, prefix = "";
         if (module.startsWith(".")) { const dots = module.match(/^\.+/)[0].length; const parts = dir ? dir.split("/") : []; if (dots > parts.length + (fileMap.has("__init__.py") ? 1 : 0)) return { targets: [], reason: "Relative import escapes source root" }; prefix = parts.slice(0, parts.length - dots + 1).join("/"); module = module.slice(dots); }
@@ -439,8 +884,18 @@
         const modules = [stem + ".py", (stem ? stem + "/" : "") + "__init__.py"];
         const direct = choose(modules);
         if (fact.form === "python-from") {
+          // A name the imported module already binds is that value, not a
+          // same-named submodule; only an unbound name can load one.
+          // https://docs.python.org/3/reference/import.html#submodules
+          const bound = new Set(); let dynamic = false;
+          for (const target of direct.targets) {
+            const facts = fileMap.get(target)?.facts;
+            for (const name of facts?.moduleBindings || []) bound.add(name);
+            for (const symbol of facts?.symbols || []) if (symbol.parent == null) bound.add(symbol.name);
+            dynamic ||= Boolean(facts?.moduleBindingsDynamic);
+          }
           const submodules = [];
-          for (const name of fact.names || []) if (name !== "*") { const sub = (stem ? stem + "/" : "") + name; const result = choose([sub + ".py", sub + "/__init__.py"]); submodules.push(...result.targets); }
+          if (!dynamic) for (const name of fact.names || []) if (name !== "*" && !bound.has(name)) { const sub = (stem ? stem + "/" : "") + name; const result = choose([sub + ".py", sub + "/__init__.py"]); submodules.push(...result.targets); }
           if (submodules.length) return { targets: [...new Set([...direct.targets, ...submodules])] };
         }
         return direct;
@@ -475,19 +930,69 @@
       externalNodes.set(key, target); return target;
     }
     let edgeCap = false;
+    // Content-sensitive project context: the same path list with a changed
+    // package.json must not reuse a binding proven against the old content.
+    const projectContext = semanticManifest || hash([...fileMap.keys()].sort().join("\n"));
+    /* Relation identity is content-addressed: the declaring file, the line, the
+       form, the specifier and the target, plus which occurrence of that exact key
+       this is. Nothing in an id depends on how many other relations were built
+       first, so adding or removing a relation in one file can never renumber an
+       untouched relation in another — which is what a shard-level reuse or a diff
+       between two snapshots needs. */
+    const edgeOccurrences = new Map();
+    function edgeId(key) {
+      const seen = edgeOccurrences.get(key) || 0;
+      edgeOccurrences.set(key, seen + 1);
+      return id("edge", seen ? key + "\0#" + seen : key);
+    }
+    /* A prose line may repeat the very same link, as changelog entries do
+       (`closes [#9351](…) [#9351](…)`). Those occurrences are byte-identical, share one
+       line and name one target, so they state one relationship — recording each as its own
+       relation duplicated a single fact with no way to tell the copies apart. Code imports
+       are deliberately excluded: a repeated specifier there is a separate statement. */
+    const DOCUMENT_LINK_FORMS = new Set(["markdown-link", "md-link", "html-link"]);
+    const documentLinksSeen = new Set();
     for (const [path, value] of fileMap) for (const fact of value.facts.imports) {
+      if (DOCUMENT_LINK_FORMS.has(fact.form)) {
+        const occurrence = `${path}\0${fact.line}\0${fact.form}\0${fact.specifier}`;
+        if (documentLinksSeen.has(occurrence)) continue;
+        documentLinksSeen.add(occurrence);
+      }
       const resolution = resolve(path, fact, value.entry); if (resolution.ignored) continue;
       if (!resolution.targets.length && resolution.external) {
         const target = externalTarget(value, resolution.external);
         if (!target || edges.length >= limits.maxEdges) { if (complete) resourceFailure("External relationship safety ceiling reached."); edgeCap = true; continue; }
-        edges.push({ id: id("edge", path + "\0external\0" + fact.line + "\0" + fact.form + "\0" + target + "\0" + edges.length), source: value.node.id, target, type: "imports", label: fact.specifier.slice(0, 240), evidenceStatus: "source-text", description: "The source declares this external dependency reference. Its contents and runtime binding were not inspected; this does not count as a resolved local-code relationship.", evidence: [evidence(path, value.text, fact.line, fact.endLine, value.url)], externalReference: true });
+        edges.push({ id: edgeId(path + "\0external\0" + fact.line + "\0" + fact.form + "\0" + target), source: value.node.id, target, type: "imports", label: fact.specifier.slice(0, 240), evidenceStatus: "source-text", description: "The source declares this external dependency reference. Its contents and runtime binding were not inspected; this does not count as a resolved local-code relationship.", evidence: [evidence(path, value.text, fact.line, fact.endLine, value.url)], externalReference: true });
         externalReferenceEdges++; continue;
       }
       if (!resolution.targets.length) { if (value.node.analysis) value.node.analysis.unresolvedCount++; if (report.unresolved.length < (complete ? Number.MAX_SAFE_INTEGER : 1000)) report.unresolved.push({ file: path, line: fact.line, specifier: fact.specifier.slice(0, 256), reason: resolution.reason }); continue; }
+      // A resolver may prove the target file and still refuse to call the
+      // relation a fact: a build condition (a Rust `#[cfg]` predicate, for
+      // example) decides whether the declaration is compiled at all. Such an
+      // edge stays a candidate for one configuration, never resolved.
+      const conditional = resolution.status === "candidate" && resolution.conditional === true;
       for (const target of resolution.targets) {
         if (edges.length >= limits.maxEdges) { if (complete) resourceFailure("Relationship safety ceiling reached."); edgeCap = true; break; }
-        const type = ["html-script", "html-stylesheet"].includes(fact.form) ? "loads" : fact.form.endsWith("link") ? "links" : "imports";
-        edges.push({ id: id("edge", path + "\0" + fact.line + "\0" + fact.form + "\0" + fact.specifier + "\0" + target + "\0" + edges.length), source: value.node.id, target: fileMap.get(target).node.id, type, label: fact.specifier.slice(0, 240), evidenceStatus: "lexical-candidate", description: `${fact.form}: static source reference resolves to an included local file. This is a lexical dependency candidate, not a verified execution, call or runtime flow.`, evidence: [evidence(path, value.text, fact.line, fact.endLine, value.url)] });
+        const type = ["html-script", "html-stylesheet"].includes(fact.form) ? "loads" : /link$/i.test(fact.form) ? "links" : fact.form.startsWith("config") ? "configures" : "imports";
+        const uniqueLocal = !conditional && resolution.targets.length === 1 && (typeof resolution.status === "string"
+          // A resolver that states its verdict decides the status: a proof is a
+          // proof whichever engine produced it, and a deliberate candidate is never
+          // promoted because its form happens to be a local one.
+          ? resolution.status === "resolved"
+          : root.SkylenseSemanticProject?.LOCAL_FORMS.has(fact.form) || ["markdown-link", "md-link", "config-bin", "config-main"].includes(fact.form));
+        // A candidate a rule deliberately produced keeps that rule and its reason:
+        // "an import names a module, and a module is a directory of files" is a
+        // different fact from "a name happened to match", and a reader must be able
+        // to tell the two apart without rerunning the analysis.
+        const statedCandidate = !conditional && !uniqueLocal && resolution.status === "candidate" && Boolean(resolution.rule);
+        // The producer is whichever resolver answered, with the rule it applied.
+        // Naming one engine for every form would misattribute the proof.
+        // A stated candidate's reason code (why the rule stopped short of a proof) travels
+        // with it into the relation, so the refusal stays machine-readable.
+        const producer = { engine: resolution.engine || "semantic-project", ...(resolution.rule ? { rule: resolution.rule } : {}), ...(statedCandidate && resolution.reasonCode ? { reasonCode: resolution.reasonCode } : {}), projectContextHash: projectContext };
+        edges.push({ id: edgeId(path + "\0" + fact.line + "\0" + fact.form + "\0" + fact.specifier + "\0" + target), source: value.node.id, target: fileMap.get(target).node.id, type, label: fact.specifier.slice(0, 240), evidenceStatus: conditional ? "conditional-candidate" : uniqueLocal ? "static-resolved" : "lexical-candidate", ...(uniqueLocal ? { resolution: { ...producer, kind: "source" } } : conditional ? { resolution: { ...producer, kind: "conditional-candidate" } } : statedCandidate ? { resolution: { ...producer, kind: "candidate" } } : {}), description: conditional ? `${fact.form}: ${resolution.reason} This is a candidate for the configurations that enable it, not a resolved relationship.` : uniqueLocal ? `${fact.form}: unique included path inside this snapshot. This is a static source binding, not proof of execution.` : (statedCandidate
+          ? `${fact.form}: ${resolution.reason || "a project rule produced this candidate without proving a single target"} This is a candidate, not a resolved relationship.`
+          : `${fact.form}: static source reference resolves to an included local file. This is a lexical dependency candidate, not a verified execution, call or runtime flow.`), evidence: [evidence(path, value.text, fact.line, fact.endLine, value.url)] });
       }
     }
     const nodesById = new Map(nodes.map(node => [node.id, node]));
@@ -509,16 +1014,33 @@
         continue;
       }
       if (edges.length >= limits.maxEdges) { if (complete) resourceFailure("Structural relationship safety ceiling reached."); edgeCap = true; break; }
-      edges.push({ id: id("edge", path + "\0heritage\0" + relationship.line + "\0" + (relationship.column || 0) + "\0" + relationship.form + "\0" + target + "\0" + relationshipIndex), source: from, target, type: relationship.form, label: (relationship.form === "implements" ? "implements " : "extends ") + relationship.name, evidenceStatus: "static-resolved", resolution: { engine: relationship.resolution.engine || "typescript-symbols", kind: "source" }, description: "A declared class or interface heritage reference resolves through the project symbol table to this unique included source definition. This is a structural relationship, not an execution sequence or proof that the implementation satisfies the contract.", evidence: [evidence(path, value.text, relationship.line, relationship.endLine, value.url)] });
+      edges.push({ id: edgeId(path + "\0heritage\0" + relationship.line + "\0" + (relationship.column || 0) + "\0" + relationship.form + "\0" + target), source: from, target, type: relationship.form, label: (relationship.form === "implements" ? "implements " : "extends ") + relationship.name, evidenceStatus: "static-resolved", resolution: { engine: relationship.resolution.engine || "typescript-symbols", kind: "source", ...(relationship.resolution.projectContextHash ? { projectContextHash: relationship.resolution.projectContextHash } : {}), ...(relationship.resolution.rule ? { rule: relationship.resolution.rule } : {}) }, description: "A declared class or interface heritage reference resolves through the project symbol table to this unique included source definition. This is a structural relationship, not an execution sequence or proof that the implementation satisfies the contract.", evidence: [evidence(path, value.text, relationship.line, relationship.endLine, value.url)] });
       structuralRelationships++;
     }
     report.structuralRelationships = structuralRelationships; report.unresolvedRelationships = unresolvedRelationships;
-    for (const [path, value] of fileMap) for (const [callIndex, call] of (value.facts.structure?.calls || []).entries()) {
+    // Calls with call-binding facts are bound by src/semantic-calls.js where the language's scope
+    // rules leave one included declaration; an abstention replaces the generic reason
+    // with the one that names what was not proven. Bound syntax calls are remembered so
+    // the same-file name-match pass below never adds a competing candidate for them.
+    // Nothing outside the selected source is read, so what lies above its root is not
+    // known; `repository` says the root is a repository root (a GitHub tree).
+    const snapshotRoot = { repository: options.kind === "repository" };
+    const bindCall = root.SkylenseSemanticCalls?.create(fileMap, { joinRelative, droppedPaths, snapshotRoot, resolveProject: (path, fact) => projectResolver?.(path, fact) });
+    const boundCalls = new Set();
+    for (const [path, value] of fileMap) for (const [callIndex, syntaxCall] of (value.facts.structure?.calls || []).entries()) {
+      const binding = bindCall && syntaxCall.resolution?.kind === "unresolved" ? bindCall(path, syntaxCall) : null;
+      const call = binding?.resolution ? { ...syntaxCall, resolution: { ...binding.resolution, projectContextHash: projectContext }, evidenceStatus: binding.evidenceStatus }
+        // A binder that refused a proof may still name the declarations the call can
+        // reach (a C call of a function another translation unit defines). They are
+        // candidates with the binder's rule, never a resolved binding.
+        : binding?.candidates ? { ...syntaxCall, resolution: { ...binding.candidates, kind: "candidate", reason: binding.reason, projectContextHash: projectContext } }
+        : binding?.reason ? { ...syntaxCall, resolution: { ...syntaxCall.resolution, reason: binding.reason } } : syntaxCall;
+      if (binding?.resolution || binding?.candidates) boundCalls.add(syntaxCall);
       const from = call.owner === null ? value.node.id : value.symbolNodes.get(call.owner);
-      const dispatch = call.resolution.kind === "source-candidates", semantic = call.resolution.kind === "source";
+      const dispatch = call.resolution.kind === "source-candidates", semantic = call.resolution.kind === "source", linked = call.resolution.kind === "candidate";
       let targets = [];
       if (semantic) targets = [sourceTarget(call.resolution)];
-      else if (dispatch) targets = (call.resolution.targets || []).map(sourceTarget);
+      else if (dispatch || linked) targets = (call.resolution.targets || []).map(sourceTarget);
       else if (call.resolution.kind === "local") targets = [value.symbolNodes.get(call.resolution.symbol)];
       else if (call.resolution.kind === "import") {
         const reference = call.resolution;
@@ -539,13 +1061,35 @@
       if (dispatch) dispatchCallsites++;
       for (const target of targets) {
         if (edges.length >= limits.maxEdges) { if (complete) resourceFailure("Relationship safety ceiling reached."); edgeCap = true; break; }
-        const targetNode = nodesById.get(target), type = dispatch ? "call-candidate" : targetNode?.kind === "class" ? "constructs" : "calls";
-        edges.push({ id: id("edge", path + "\0call\0" + call.line + "\0" + (call.column || 0) + "\0" + call.name + "\0" + target + "\0" + edges.length), source: from, target, type, label: call.name + "()", callsiteId, ...(dispatch ? { dispatchCandidateCount: targets.length } : {}), evidenceStatus: dispatch ? "dispatch-candidate" : semantic ? "static-resolved" : "lexical-candidate", resolution: { engine: call.resolution.engine || (dispatch ? "julia-static-binding" : semantic ? "typescript-checker" : "lexical-binding"), kind: call.resolution.kind }, description: dispatch ? "A source call can refer to this included method through static module bindings. These edges form a candidate set; argument types and runtime multiple dispatch are not evaluated." : semantic ? "A static semantic binding resolves this call site to a unique included source declaration. Runtime dispatch and execution order are not observed." : "A source call expression resolves lexically to this unique included declaration. Decorators, rebinding and runtime behavior are not verified; this is not an observed execution or ordering claim.", evidence: [evidence(path, value.text, call.line, call.endLine, value.url)] });
+        const targetNode = nodesById.get(target), type = dispatch || linked ? "call-candidate" : targetNode?.kind === "class" ? "constructs" : "calls";
+        edges.push({ id: edgeId(path + "\0call\0" + call.line + "\0" + (call.column || 0) + "\0" + call.name + "\0" + target), source: from, target, type, label: call.name + "()", callsiteId, ...(dispatch ? { dispatchCandidateCount: targets.length } : {}), evidenceStatus: dispatch ? "dispatch-candidate" : semantic ? "static-resolved" : "lexical-candidate", resolution: { engine: call.resolution.engine || (dispatch ? "julia-static-binding" : semantic ? "typescript-checker" : "lexical-binding"), kind: call.resolution.kind, ...(call.resolution.projectContextHash ? { projectContextHash: call.resolution.projectContextHash } : {}), ...(call.resolution.rule ? { rule: call.resolution.rule } : {}), ...(!semantic && call.resolution.reasonCode ? { reasonCode: call.resolution.reasonCode } : {}) }, description: dispatch ? "A source call can refer to this included method through static module bindings. These edges form a candidate set; argument types and runtime multiple dispatch are not evaluated." : linked ? "The calling file does not define this callee, so it names a function with external linkage; this included non-static definition of the name is a candidate. Which definition the call reaches is decided by the link, which is not read, so this is not a resolved binding." : semantic ? "A static semantic binding resolves this call site to a unique included source declaration. Runtime dispatch and execution order are not observed." : "A source call expression resolves lexically to this unique included declaration. Decorators, rebinding and runtime behavior are not verified; this is not an observed execution or ordering claim.", evidence: [evidence(path, value.text, call.line, call.endLine, value.url)] });
+        if (call.resolution.proof) edges[edges.length - 1].resolution.proof = call.resolution.proof;
         callCandidates++; if (semantic) semanticCalls++; if (dispatch) dispatchCandidates++;
       }
     }
     report.externalReferences = externalNodes.size; report.externalReferenceEdges = externalReferenceEdges;
     report.callCandidates = callCandidates; report.semanticCalls = semanticCalls; report.dispatchCandidates = dispatchCandidates; report.dispatchCallsites = dispatchCallsites; report.unresolvedCalls = unresolvedCalls;
+    if (root.SkylenseSemanticProject?.localCallEdges) {
+      for (const extra of root.SkylenseSemanticProject.localCallEdges(fileMap, { maxEdges: Math.max(0, limits.maxEdges - edges.length), skip: boundCalls })) {
+        if (extra.resolution !== "candidate" || extra.toIndex == null) continue;
+        const value = fileMap.get(extra.path);
+        const from = extra.fromOwner == null ? value.node.id : value.symbolNodes.get(extra.fromOwner);
+        const target = value.symbolNodes.get(extra.toIndex);
+        if (!from || !target) continue;
+        if (edges.some(edge => edge.source === from && edge.target === target && (edge.type === "calls" || edge.type === "call-candidate" || edge.type === "constructs"))) continue;
+        if (edges.length >= limits.maxEdges) { if (complete) resourceFailure("Relationship safety ceiling reached."); edgeCap = true; break; }
+        edges.push({
+          id: edgeId(extra.path + "\0local-call\0" + extra.line + "\0" + extra.name + "\0" + target),
+          source: from, target, type: "call-candidate", label: extra.name + "()",
+          evidenceStatus: "lexical-candidate",
+          resolution: { engine: "semantic-project", kind: "candidate" },
+          description: "A unique same-file name match is a candidate, not a static proof of the callee or an execution trace.",
+          evidence: [evidence(extra.path, value.text, extra.line, extra.endLine || extra.line, value.url)],
+        });
+        callCandidates++;
+      }
+      report.callCandidates = callCandidates;
+    }
     if (options.kind === "webpage") {
       let headingCount = 0, referenceCount = 0;
       for (const [path, value] of fileMap) {
@@ -573,14 +1117,18 @@
             const parsed = new URL(targetUrl);
             nodes.push({ id: target, label: (parsed.hostname + parsed.pathname).slice(0, 180), path: targetUrl, url: targetUrl, kind: "external", group: rootId, parentId: pageId, level: value.node.level, summary: `Unfetched ${resource ? "resource" : "hyperlink"} reference · target contents were not inspected`, status: "unfetched-reference", evidenceStatus: "unfetched-reference", documentIds: [...value.node.documentIds], functions: [], inputs: [], outputs: [], evidence: [evidence(path, value.text, fact.line, fact.endLine, value.url)] }); referenceCount++;
           }
-          if (edges.length < limits.maxEdges) edges.push({ id: id("edge", path + (resource ? "\0resource\0" : "\0hyperlink\0") + fact.line + "\0" + targetUrl + "\0" + edges.length), source: value.node.id, target, type: resource ? "loads" : "links", label: (resource ? "resource · " : "hyperlink · ") + fact.specifier.slice(0, 240), evidenceStatus: "source-text", description: resource ? "The collected source contains this authored resource attribute. The target was not fetched; this does not establish successful loading or code execution." : "The collected source contains this authored hyperlink. The target was not fetched; the link does not establish a code dependency or execution relationship.", evidence: [evidence(path, value.text, fact.line, fact.endLine, value.url)] });
+          if (edges.length < limits.maxEdges) edges.push({ id: edgeId(path + (resource ? "\0resource\0" : "\0hyperlink\0") + fact.line + "\0" + targetUrl), source: value.node.id, target, type: resource ? "loads" : "links", label: (resource ? "resource · " : "hyperlink · ") + fact.specifier.slice(0, 240), evidenceStatus: "source-text", description: resource ? "The collected source contains this authored resource attribute. The target was not fetched; this does not establish successful loading or code execution." : "The collected source contains this authored hyperlink. The target was not fetched; the link does not establish a code dependency or execution relationship.", evidence: [evidence(path, value.text, fact.line, fact.endLine, value.url)] });
         }
       }
       report.pageSections = headingCount; report.unfetchedReferences = referenceCount;
       if (!complete && (headingCount >= 40 || referenceCount >= 40)) report.warnings.push("Webpage section and unfetched-reference previews are limited to 40 each.");
     }
     if (edgeCap) report.warnings.push(`Relationship output limited to ${limits.maxEdges}.`);
-    if (!nodes.length) nodes.push({ id: id("file", "__skylense_empty_manifest__"), label: "No accepted files", kind: "document", parentId: rootId, group: rootId, level: 2, description: "The collection contained no accepted files. Check the ingestion report for limits, exclusions and transport failures.", evidenceStatus: "metadata-only", functions: [], inputs: [], outputs: [], evidence: [], documentIds: [] });
+    if (!nodes.length) {
+      nodes.push({ id: id("file", "__skylense_empty_manifest__"), label: "No accepted files", kind: "document", parentId: rootId, group: rootId, level: 2, description: "The collection contained no included source files. This is an empty source map, not a completed architecture. Check the ingestion report for exclusions, unknown extensions, binary metadata and transport failures.", evidenceStatus: "metadata-only", functions: [], inputs: [], outputs: [], evidence: [], documentIds: [], emptySource: true });
+      report.emptySource = true;
+      report.warnings.push("The selected folder contained no included source files.");
+    }
     report.evidenceBytes = evidenceBytes; report.truncatedExcerpts = evidenceTruncated;
     if (evidenceTruncated) report.warnings.push("Some excerpts are partial because of preview budgets; bounded source previews remain in documents.");
     report.truncated = Boolean(evidenceTruncated || (symbolsUsed - documentSymbols) >= limits.maxSymbolsTotal || options.report?.truncated || report.truncatedFiles || report.warnings.some(item => typeof item === "string" && /limited|budget/i.test(item)) || report.skipped.some(item => /limit|budget/i.test(item.reason || "")) || edgeCap);
@@ -588,9 +1136,48 @@
     report.indexCompleteness = { mode: complete ? "complete" : "preview", collection: complete && !options.report?.truncated ? "complete" : "partial", declarations: complete ? report.syntax?.errors?.length ? "partial-syntax-errors" : "complete-for-supported-parsers" : "bounded", relationships: "static-supported-references", runtime: false };
     if (complete) report.truncated = Boolean(options.report?.truncated || report.truncatedFiles || edgeCap);
     report.acceptedFiles = fileCount; report.directories = directoryIds.size - 1; report.relationships = edges.length; report.symbols = symbolsUsed;
+    // Vendored directories of the accepted files, with how many files each holds;
+    // the files stay in the model and in the accounting below as what they are.
+    const vendored = vendoredRoots([...fileMap].map(([path, value]) => ({ path, text: value.text })));
+    for (const item of vendored) item.files = [...fileMap.keys()].filter(path => path.startsWith(item.path + "/")).length;
+    report.vendored = vendored;
+    // Terminal accounting state for every accepted path, then one summary that
+    // keeps "all paths accounted" and "all paths parsed" as separate claims.
+    const accountingFiles = [];
+    for (const [entryPath, value] of accepted) {
+      if (value.directory) { if (accounting) accounting.scope(report.accounting, entryPath, { kind: "directory" }); continue; }
+      const entry = value.entry, status = String(entry.status || "");
+      const reason = value.text !== null && value.text !== undefined ? "analyzed"
+        : status === "binary" ? "binary-content"
+        : status === "size-limit" ? "size-limit"
+        : status === "unreadable" ? "unreadable"
+        : status === "excluded" ? "ignore-rule"
+        : status === "symlink" ? "symlink-not-followed"
+        : status === "TIMEOUT" ? "timeout"
+        : /FAILED|ERROR|fetch-failed/i.test(status) ? "fetch-failed"
+        : "unsupported-format";
+      accountingFiles.push({ path: entryPath, reason, sourceKind: ENTRY_KIND(entry), ...(Number.isFinite(entry.byteLength) ? { bytes: entry.byteLength } : {}) });
+    }
+    report.accounting = accounting
+      ? accounting.finalize(report.accounting, { files: accountingFiles, mode: complete ? "complete" : "preview" })
+      : {
+        schema: "skylense-source-accounting-v1", paths: [], scopes: [],
+        summary: {
+          accountingComplete: false, snapshotComplete: false, reason: "accounting-module-missing",
+          claims: {
+            accounting: "The source accounting module was not loaded, so this report does not claim complete source accounting.",
+            parseSuccess: "Without the accounting ledger, accounting completeness cannot be reported separately from parse success.",
+            snapshot: "This must not be published or labelled as a complete analysis.",
+          },
+        },
+      };
+    // A partial acquisition never reports a complete collection. An absent ledger
+    // or module is its own reported gap and does not retroactively downgrade
+    // transports that have not been wired to the ledger yet.
+    if (!["discovery-ledger-missing", "accounting-module-missing"].includes(report.accounting.summary.reason) && !report.accounting.summary.snapshotComplete) report.indexCompleteness.collection = "partial";
     const source = typeof options.source === "string" ? options.source : options.kind || "folder";
     const revision = typeof options.revision === "string" ? options.revision : hash([...fileMap].map(([path, file]) => path + "\0" + (file.text === null ? file.node.size : hash(file.text))).join("\n"));
-    const model = { meta: { id: "ingest_" + hash(source + "\0" + title), title, description: "Automatically collected source hierarchy and bounded static reference analysis.", version: 1, source, revision, sourceFolder: title, ...(safeUrl(options.url) ? { repository: safeUrl(options.url) } : {}), evidenceNote: "Automatically analyzed source text. Imports and hyperlinks are lexical candidates resolved against included files; Call-site bindings report their static or lexical provenance and do not form a complete runtime call graph. No code was executed and no runtime flow is inferred. Excerpts may be partial when preview budgets are reached; bounded source previews are available in documents. Preview limits, skipped files and unresolved references are recorded in the ingestion report.", defaultScope: "system", defaultOpen: [], ingestion: report, count: { groups: 1, containers: hierarchy.length, nodes: nodes.length, edges: edges.length, functions: report.symbols, documents: documents.length } }, groups: [group], hierarchy, nodes, edges, flows: [], documents };
+    const model = { meta: { id: "ingest_" + hash(source + "\0" + title), title, description: "Automatically collected source hierarchy and bounded static reference analysis.", version: 1, source, revision, sourceFolder: title, contentProvenance: "generated", ...(safeUrl(options.url) ? { repository: safeUrl(options.url) } : {}), evidenceNote: "Automatically analyzed source text. Imports and hyperlinks are lexical candidates resolved against included files; Call-site bindings report their static or lexical provenance and do not form a complete runtime call graph. No code was executed and no runtime flow is inferred. Excerpts may be partial when preview budgets are reached; bounded source previews are available in documents. Preview limits, skipped files and unresolved references are recorded in the ingestion report.", defaultScope: "system", defaultOpen: [], ingestion: report, count: { groups: 1, containers: hierarchy.length, nodes: nodes.length, edges: edges.length, functions: report.symbols, documents: documents.length } }, groups: [group], hierarchy, nodes, edges, flows: [], documents };
     root.SkylenseSourceInsights?.enrich(model);
     // Escaped JSON can be much larger than UTF-8 source text (for example logs
     // containing backslashes or control characters). Cap the actual pretty JSON
@@ -634,7 +1221,56 @@
     // Only this non-negative integer changed in the second measurement. Its
     // decimal digit growth is the exact UTF-8/pretty-JSON byte delta.
     report.serializedBytes += String(report.serializedBytes).length - 1;
+    if (root.SkylenseModelMigrations) {
+      // One store describing what was actually read: the decoded text, the raw
+      // byte hash when the reader supplied one, and whether the stored text is
+      // the complete file. Every evidence record is derived from this.
+      const sources = {};
+      for (const [path, value] of fileMap) {
+        const entry = value.entry || {};
+        const complete = typeof value.text === "string" && !value.textClipped;
+        sources[path] = {
+          text: typeof value.text === "string" ? value.text : null,
+          decodeStatus: complete ? "exact" : typeof value.text === "string" ? "lossy" : "unavailable",
+          rawHash: typeof entry.rawHash === "string" ? entry.rawHash : null,
+          byteLength: Number.isSafeInteger(entry.byteLength) ? entry.byteLength : null,
+          encoding: typeof value.text === "string" ? entry.encoding || "utf-8" : null,
+          status: typeof value.text === "string" ? "included"
+            : entry.status === "unreadable" ? "unreadable"
+              : entry.status === "size-limit" ? "excluded" : "unsupported-format",
+          // status carries why the file was not read; reasonCode states what
+          // the record holds, which is metadata alone when no text survived.
+          reasonCode: complete ? null : typeof value.text === "string" ? "decoded-text-truncated" : "metadata-only",
+        };
+      }
+      root.SkylenseModelMigrations.migrateModel(model, { sources });
+      root.SkylenseClaims?.enrichFromSources(model, sources);
+      if (model.analysis) {
+        const adapters = root.SkylenseLanguageAdapters;
+        model.analysis.capabilities = adapters?.matrix?.() || [];
+        const languages = [...new Set([...fileMap.values()].map(value => value.node.language).filter(Boolean))];
+        model.analysis.projectAdapters = adapters?.detectProject?.([...fileMap.values()].map(value => ({ path: value.node.path }))) || [];
+        model.analysis.languageCapabilities = Object.fromEntries(languages.map(language => [language, adapters?.capability?.(language) || { language, status: "unknown" }]));
+        if (root.SkylenseAnalysisRuntime && root.SkylenseAnalysisIR) {
+          model.analysis.fingerprints = {
+            sources: root.SkylenseAnalysisRuntime.fingerprint([...fileMap].map(([path, file]) => ({ path, decodedTextHash: root.SkylenseAnalysisIR.sha256Text(file.text || "") }))),
+          };
+          const previous = options.previousFiles || [];
+          const importGraph = {};
+          for (const [path, targets] of importTrace) importGraph[path] = [...targets];
+          model.analysis.incremental = root.SkylenseAnalysisRuntime.incrementalPlan(previous, [...fileMap].map(([path, file]) => ({ path, decodedTextHash: root.SkylenseAnalysisIR.sha256Text(file.text || "") })), importGraph);
+        }
+        if (root.SkylenseQueryIndex) model.analysis.query = { snapshotId: model.analysis.snapshotId, collections: ["nodes", "edges", "claims", "evidence", "relations", "files"] };
+        if (root.SkylenseHypergraph) {
+          model.analysis.hyperedges = root.SkylenseHypergraph.fromAnalysis(model.analysis);
+        }
+        // Same admission gate as import and registration; a model produced here
+        // is not exempt from the checks a foreign one has to pass.
+        root.SkylenseModelMigrations.admitModel(model, { sources, origin: "source-analysis" });
+      }
+    }
+    if (semanticIndex) for (const [path, map] of semanticPuts) semanticIndex.putSemantic(semanticKeys.get(path), { version: semanticIndex.version, map });
     return model;
   }
-  root.SkylenseIngest = Object.freeze({ build, classifyPath, comparePaths, pathPriority, isExcludedPath, limits: LIMITS });
+  root.SkylenseIngest = Object.freeze({ build, classifyPath, comparePaths, pathPriority, isExcludedPath, vendoredRoots, vendoredRootOf, limits: LIMITS });
 })(typeof window !== "undefined" ? window : globalThis);

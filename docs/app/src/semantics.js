@@ -151,6 +151,25 @@
     ),
   });
 
+  // Fact status is a third axis, independent of node kind and relation type: a route hop is
+  // structurally stored, declared-satisfied, conditional, a candidate, or unlabelled. Colour is
+  // always paired with an icon, a text label and a line style, so no meaning rests on colour.
+  const certainties = Object.freeze({
+    structural: entry('structural', '结构可达', '结构', '存在已存储的原始关系，方向未改写；结构上可达，不代表运行时已执行。', 'route', '#1F2937', '#E5E7EB', '14 2'),
+    'declared-satisfied': entry('declared-satisfied', '声明条件已满足', '已满足', '关系组声明的共同参与条件在这条路径上已满足；仍然只是声明，不是实测执行。', 'check', '#065F46', '#A7F3D0', '10 3'),
+    conditional: entry('conditional', '条件未满足', '有条件', '关系组要求的参与者尚未出现在这条路径上；这一段是有条件的，不能当作确定连接。', 'info', '#9A3412', '#FED7AA', '4 4'),
+    candidate: entry('candidate', '候选之一', '候选', '来自 any-of 候选集的成员关系；只是候选之一，不能画成必然调用。', 'fanout', '#92400E', '#FCD34D', '2 3'),
+    unspecified: entry('unspecified', '激活条件未声明', '未声明', '关系组没有声明 all/any 激活条件；保持未知，不默认视为已证明。', 'minus', '#3F3F46', '#D4D4D8', '1 4'),
+  });
+
+  // Declared activation of a semantic relation group. `all` and `any` are declarations about the
+  // group definition; neither is a record of anything having run.
+  const activations = Object.freeze({
+    all: entry('all', '共同参与（all-of）', 'all-of', '组定义要求的共同参与条件；不自动证明运行时执行。', 'layers', '#1D4ED8', '#BFDBFE', '10 3'),
+    any: entry('any', '候选集合（any-of）', 'any-of', '候选或替代参与者；不能画成全部必然调用。', 'fanout', '#92400E', '#FCD34D', '2 3'),
+    unspecified: entry('unspecified', '未声明激活条件', '未声明', '导入模型没有给出 all/any；保持 unspecified。', 'minus', '#3F3F46', '#D4D4D8', '1 4'),
+  });
+
   function custom(value, object) {
     const supplied = typeof value === "string" ? value.trim() : "";
     const category = object === "relation" ? "关系" : "节点";
@@ -180,6 +199,34 @@
       Object.prototype.hasOwnProperty.call(nodes, kind)
       ? nodes[kind]
       : custom(kind, "node");
+  }
+
+  function unlabelled(what) {
+    return entry(
+      "unknown",
+      `未标注${what}`,
+      "未标注",
+      `导入数据没有给出${what}；保持未知，不能默认视为已证明。`,
+      "info",
+      "#52525B",
+      "#D4D4D8",
+      "3 3",
+    );
+  }
+
+  /** An unknown fact status never degrades into a confident one. */
+  function certainty(level) {
+    return typeof level === "string" &&
+      Object.prototype.hasOwnProperty.call(certainties, level)
+      ? certainties[level]
+      : unlabelled("可信度");
+  }
+
+  function activation(mode) {
+    return typeof mode === "string" &&
+      Object.prototype.hasOwnProperty.call(activations, mode)
+      ? activations[mode]
+      : unlabelled("激活条件");
   }
 
   function relationShape(edgeCount) {
@@ -220,8 +267,12 @@
   root.CodeLoomSemantics = Object.freeze({
     relation,
     node,
+    certainty,
+    activation,
     relationShape,
     relationTypes: Object.freeze(Object.keys(relations)),
     nodeKinds: Object.freeze(Object.keys(nodes)),
+    certaintyLevels: Object.freeze(Object.keys(certainties)),
+    activationModes: Object.freeze(Object.keys(activations)),
   });
 })(typeof window !== "undefined" ? window : globalThis);

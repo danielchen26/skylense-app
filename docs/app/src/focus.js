@@ -48,7 +48,8 @@
    * members win over selectedId. Edge relevance always uses original IDs and
    * endpoints; relation focus adds one-hop context only in the global lens.
    * Trace adds exactly its filtered `edges` plus explicit `nodes`, never every
-   * edge among those nodes. Type filters edge activity, not anchor identity.
+   * edge among those nodes. Type filters edge activity, not anchor identity;
+   * it is "all", one relation type, or a predicate over edges.
    *
    * selectedIds are exact visible anchors or closest visible ancestors; anchors
    * without a visible representative remain exact for non-canvas UI. relatedIds
@@ -79,7 +80,7 @@
       anchorIds.flatMap((id) => data.members.get(id)),
     );
     const filtered = data.edges.filter(
-      (edge) => type === "all" || edge.type === type,
+      typeof type === "function" ? type : (edge) => type === "all" || edge.type === type,
     );
     const selectedEdgeIds = filtered
       .filter((edge) => relationSelection && requested.has(edge.id))

@@ -50,8 +50,9 @@
 
   /**
    * Describe a leaf/container and/or selected canonical edges. Both supplied
-   * selectors contribute to the selected union. A type filter limits analysis,
-   * never the focused edge IDs or the selected endpoint identities.
+   * selectors contribute to the selected union. A type filter ("all", one relation
+   * type, or a predicate over edges) limits analysis, never the focused edge IDs or
+   * the selected endpoint identities.
    *
    * incoming/outgoing/internal contain original edge IDs. upstream/downstream
    * contain distinct reachable leaf IDs outside the selection. Per-root direct
@@ -61,6 +62,7 @@
    */
   function describe(model, { nodeId, edgeIds = [], type = "all" } = {}) {
     const { nodes, groups, roots, canonical, members } = index(model);
+    const keep = typeof type === "function" ? type : (edge) => type === "all" || edge.type === type;
     const requested = new Set(edgeIds),
       focused = canonical.filter((edge) => requested.has(edge.id));
     const selected = new Set(members.get(nodeId) || []);
@@ -97,7 +99,7 @@
       map.get(from).push(to);
     };
     for (const edge of canonical) {
-      if (type !== "all" && edge.type !== type) continue;
+      if (!keep(edge)) continue;
       if (!nodes.has(edge.source) || !nodes.has(edge.target)) continue;
       append(forward, edge.source, edge.target);
       append(backward, edge.target, edge.source);

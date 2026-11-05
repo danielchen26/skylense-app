@@ -10,6 +10,14 @@
       "spdx": "MIT",
       "file": "licenses/web-tree-sitter.txt",
       "source": "https://raw.githubusercontent.com/tree-sitter/tree-sitter/da6fe9beb4f7f67beb75914ca8e0d48ae48d6406/LICENSE"
+    },
+    "localPatch": {
+      "file": "tree-sitter.mjs",
+      "upstreamSha256": "d4fc466df6358055253bc4cdaab23cdf84fe00741fa5a4ff56506c06c533da42",
+      "patchedSha256": "8d53304d4a60ed65503123dd2e9da5e61292af763356702c39bf927347751daf",
+      "reason": "This build exports the wide-character classifiers but not the narrow ones. tree-sitter-bash's external scanner calls `isalpha`, so every `[[ \u2026 ]]` extended test reached the dynamic-linking stub with nothing to resolve and threw `resolved is not a function`, aborting the analysis of any repository containing such a shell script.",
+      "change": "`resolveSymbol` gains a final fallback table of pure C-locale narrow ctype functions (isalpha/isdigit/isalnum/isupper/islower/isspace/isblank/isxdigit/isprint/isgraph/iscntrl/ispunct/tolower/toupper). It is consulted only after a real export lookup has already failed, so no symbol the main module exports can be shadowed.",
+      "regression": "scripts/verify-language-targets.mjs GAP-15; scripts/verify-parser-assets.mjs parses a `[[ \u2026 ]]` bash fixture"
     }
   },
   "grammarPackages": [
@@ -63,11 +71,11 @@
   ],
   "files": {
     "tree-sitter.wasm": "f38dcc4b43b818f9a0785bc1c6d5611a75ac4cdd428ff3f02757c34ca4e46d7f",
-    "tree-sitter.mjs": "d4fc466df6358055253bc4cdaab23cdf84fe00741fa5a4ff56506c06c533da42",
+    "tree-sitter.mjs": "8d53304d4a60ed65503123dd2e9da5e61292af763356702c39bf927347751daf",
     "grammars/tree-sitter-go.wasm": "9963ca89b616eaf04b08a43bc1fb0f07b85395bec313330851f1f1ead2f755b6",
     "grammars/tree-sitter-python.wasm": "9056d0fb0c337810d019fae350e8167786119da98f0f282aceae7ab89ee8253b",
     "grammars/tree-sitter-css.wasm": "5fc615467b1b98420ed7517e5bf9e1f88468132dd903d842dfb13714f6a1cb0c",
-    "grammars/tree-sitter-kotlin.wasm": "b5cb00c8d06ed0f10f1dbe497205b437809d7e87db1f638721a8cfb30e044449",
+    "grammars/tree-sitter-kotlin.wasm": "37f089b769b6104d68dd7959ffd1b8b3e0fb27d6159d92b1d70a2c30294d3f22",
     "grammars/tree-sitter-c.wasm": "056b25072382f72deee2c64ec238ffc4bb8cf42844ef21502c0e70f03a8a0d66",
     "grammars/tree-sitter-php.wasm": "55bb617b6f01e14bab997861f0b20a2420cf6ba3199ffeb295b9ec398966d8a3",
     "grammars/tree-sitter-java.wasm": "637aac4415fb39a211a4f4292d63c66b5ce9c32fa2cd35464af4f681d91b9a1f",
@@ -81,17 +89,17 @@
     "grammars/tree-sitter-javascript.wasm": "63812b9e275d26851264734868d27a1656bd44a2ef6eb3e85e6b03728c595ab5",
     "grammars/tree-sitter-cpp.wasm": "f6afdf53bfd6de76557bb7edb624a3a3869e14d9a83b78433f93617ecee42527",
     "grammars/tree-sitter-yaml.wasm": "8193a8c24bc9990f459afcd229bfb1c7219622b2ca0c2581d28659361c188b6f",
-    "grammars/tree-sitter-swift.wasm": "41c4fdb2249a3aa6d87eed0d383081ff09725c2248b4977043a43825980ffcc7",
+    "grammars/tree-sitter-swift.wasm": "4068530749e73bf6159a17bd45bbba5e6b0d1ef8ed9618c6bfd87ebcd10caffc",
     "grammars/tree-sitter-julia.wasm": "a6e8547f996813bb613da1e20c6205094815801ce235abf9884adcc25104d26d",
     "grammars/tree-sitter-tsx.wasm": "6aa3b2c70e76f5d48eafef1093e9c4de383e13f2fdde2f4e9b98a378f6a8f1b6",
     "grammars/tree-sitter-bash.wasm": "807dcdb1380a59befb112ed8fbd3d3872c7fadaf5903a769282b50973b30696d",
     "grammars/tree-sitter-typescript.wasm": "8515404dceed38e1ed86aa34b09fcf3379fff1b4ff9dd3967bcd6d1eb5ac3d8f",
     "grammars/tree-sitter-html.wasm": "11b3405c1543fb012f5ed7f8ee73125076dce8b168301e1e787e4c717da6b456",
-    "grammars/tree-sitter-lua.wasm": "75ef809136d610068c5b2135741d89f5df62690a3d55169203351cb7cc85727d",
+    "grammars/tree-sitter-lua.wasm": "bbe20c540ab30193090eb5304b6c7719e78ee62a829a22d3bf657840478e1e71",
     "typescript.js": "3ae902c92cc44dace175c0e69e13a4b0899f6983c6121d76b9ab8dd5795e7675"
   },
   "provenance": {
-    "method": "Publisher-pinned package bytes; original grammar revisions mapped from packager commit lockfile or Lumis package README. Binaries were not independently rebuilt from source.",
+    "method": "Publisher-pinned package bytes; original grammar revisions mapped from packager commit lockfile or Lumis package README. Binaries were not independently rebuilt from source, except the Lua, Kotlin and Swift grammars, which are built locally from the pinned upstream sources recorded in their `build` entries. The `web-tree-sitter` JavaScript glue carries one local patch, recorded in `runtime.localPatch` with the upstream and patched digests.",
     "packagerLockfile": {
       "url": "https://github.com/Gregoor/tree-sitter-wasms/blob/3e88dc9e36b4e8bf752ce53bea61e4b67282a2bb/pnpm-lock.yaml",
       "sha256": "8c99adcd54f4ee9bfe14e59f93ff55948dbae72b8c35b6c912caf6c0ed93db07"
@@ -290,34 +298,62 @@
         }
       },
       "swift": {
-        "binaryPackage": "tree-sitter-wasms",
+        "binaryPackage": null,
         "upstream": {
           "name": "tree-sitter-swift",
-          "version": "0.4.3",
+          "version": "0.7.4",
           "repository": "https://github.com/alex-pinkus/tree-sitter-swift",
-          "revision": "47abc888b965c84932d5709008fb370464e812eb",
-          "mappingEvidence": "https://github.com/Gregoor/tree-sitter-wasms/blob/3e88dc9e36b4e8bf752ce53bea61e4b67282a2bb/pnpm-lock.yaml"
+          "revision": "171fa3bc343233fe07f5e17205aaada33d778825",
+          "mappingEvidence": "https://static.crates.io/crates/tree-sitter-swift/tree-sitter-swift-0.7.4.crate (.cargo_vcs_info.json git.sha1)"
+        },
+        "build": {
+          "reason": "tree-sitter-wasms 0.1.13 ships tree-sitter-swift 0.4.3, which rejects current Swift (macros such as `#expect`, `@Test` attributes, raw strings): 56 of swift-argument-parser's 171 files failed to parse, and no call there could be resolved. The newest npm release, 0.7.1, computes `1UL << FAKE_TRY_BANG` (bit 32) in a 32-bit `unsigned long` on wasm32 and fails on 71 of the 171; 0.7.4 fixes that and fails on 1.",
+          "recipe": "scripts/build-grammar.mjs swift",
+          "patch": "scripts/swift-grammar/scanner.patch",
+          "compiler": "emscripten/emsdk:4.0.4 @sha256:47d573d5a86379a06f850de200d69407e6baa2d2f9c19d9e156a67db57f80f2f (emcc 4.0.4)",
+          "sourceTarball": "https://static.crates.io/crates/tree-sitter-swift/tree-sitter-swift-0.7.4.crate",
+          "sourceSha256": "2688c06564afa397313e0db17d140a73e2c6a47f3884794614246167c9dd5dfd",
+          "sources": {
+            "src/parser.c": "1d332e60ec28e6b398db36e06bf05414061dfbbd3e981b33ff1edfd5159e3e08",
+            "src/scanner.c": "b0abca0bb8d9e34da210ef0fac14f67c4fb40cb2625c4e51bd42ea80ac59d1b1",
+            "src/grammar.json": "d53a541b8aab32c84138a1be8360a9ad2f6e6a6823a79e69c7cc8b957ebbcdb1"
+          },
+          "modification": "`src/parser.c` (ABI 15) is compiled unmodified, so the grammar tables and every node type stay upstream. Only the out-of-memory branch of `external_scanner_create` in `src/scanner.c` changes: upstream calls `fprintf(stderr, …)` and `exit(1)`, which the web-tree-sitter runtime does not export, so the unmodified source cannot be loaded at all; the patched branch executes `__builtin_trap()` instead, which still aborts the parse.",
+          "patchedScannerSha256": "2d2ee7e4cb132def0d4fbecb80663036d005e7a049885eadebfa0b2752d1d813"
         },
         "license": {
           "spdx": "MIT",
           "file": "licenses/tree-sitter-swift.txt",
-          "source": "https://raw.githubusercontent.com/alex-pinkus/tree-sitter-swift/47abc888b965c84932d5709008fb370464e812eb/LICENSE",
+          "source": "https://raw.githubusercontent.com/alex-pinkus/tree-sitter-swift/171fa3bc343233fe07f5e17205aaada33d778825/LICENSE",
           "sha256": "3533cec129bb4bba015c0d61d86dd7c3b7e82110e4d2ff7837a01eff5bad5ccc"
         }
       },
       "kotlin": {
-        "binaryPackage": "tree-sitter-wasms",
+        "binaryPackage": null,
         "upstream": {
           "name": "tree-sitter-kotlin",
-          "version": "0.3.8",
+          "version": "0.4.0-dev (master d6af96d, unreleased)",
           "repository": "https://github.com/fwcd/tree-sitter-kotlin",
-          "revision": "e1a2d5ad1f61f5740677183cd4125bb071cd2f30",
-          "mappingEvidence": "https://github.com/Gregoor/tree-sitter-wasms/blob/3e88dc9e36b4e8bf752ce53bea61e4b67282a2bb/pnpm-lock.yaml"
+          "revision": "d6af96d2e23ef0a8ff5ab512864378cf08fba311",
+          "mappingEvidence": "https://codeload.github.com/fwcd/tree-sitter-kotlin/tar.gz/d6af96d2e23ef0a8ff5ab512864378cf08fba311 (the archive of that commit, which checks in its generated src/parser.c)"
+        },
+        "build": {
+          "reason": "tree-sitter-wasms 0.1.13 ships tree-sitter-kotlin 0.3.8 (August 2024), fwcd's last npm release, which rejects much current Kotlin: 27 of kotlinpoet's 125 files and 11 of moshi's 86 failed to parse, and a file that does not parse taints its whole package, so no call there could be resolved. The only later release of this grammar, crates.io `tree-sitter-kotlin-sg` 0.4.1 (= master f66d290), and master as late as 1852ea1 still read `val a = 1` followed by `object X { fun f() … }` as an infix call on an object literal and drop the object; d6af96d (October 2026) parses it and fails on 2 of kotlinpoet's 125 files and none of moshi's. `@tree-sitter-grammars/tree-sitter-kotlin` is a different grammar with different node types.",
+          "recipe": "scripts/build-grammar.mjs kotlin",
+          "compiler": "emscripten/emsdk:4.0.4 @sha256:47d573d5a86379a06f850de200d69407e6baa2d2f9c19d9e156a67db57f80f2f (emcc 4.0.4)",
+          "sourceTarball": "https://codeload.github.com/fwcd/tree-sitter-kotlin/tar.gz/d6af96d2e23ef0a8ff5ab512864378cf08fba311",
+          "sourceSha256": "8be2036317c39784f3a93a62c79be76f21b9f5222deeb1a498896d2a75702939",
+          "sources": {
+            "src/parser.c": "d489e0ee02b320ffc1a67c55245b0e150317dfd80321678370c2a2145a0111f3",
+            "src/scanner.c": "a3c22a33953365af2b6a9408fd7c3828d4c1e83fb95a4ce29a854410ee16e99b",
+            "src/grammar.json": "b3b03a895464780a0a946b0a4baa7397599c4711ba8073357a78b69916f67ee1"
+          },
+          "modification": "None: every source file is compiled unmodified."
         },
         "license": {
           "spdx": "MIT",
           "file": "licenses/tree-sitter-kotlin.txt",
-          "source": "https://raw.githubusercontent.com/fwcd/tree-sitter-kotlin/e1a2d5ad1f61f5740677183cd4125bb071cd2f30/LICENSE",
+          "source": "https://raw.githubusercontent.com/fwcd/tree-sitter-kotlin/d6af96d2e23ef0a8ff5ab512864378cf08fba311/LICENSE",
           "sha256": "948495f61768f7de26bcc61113d8cd95f50bbc15adb678c28c941c6c8fcd5903"
         }
       },
@@ -338,13 +374,28 @@
         }
       },
       "lua": {
-        "binaryPackage": "tree-sitter-wasms",
+        "binaryPackage": null,
         "upstream": {
           "name": "tree-sitter-lua",
           "version": "2.1.3",
           "repository": "https://github.com/Azganoth/tree-sitter-lua",
           "revision": "6b02dfd7f07f36c223270e97eb0adf84e15a4cef",
-          "mappingEvidence": "https://github.com/Gregoor/tree-sitter-wasms/blob/3e88dc9e36b4e8bf752ce53bea61e4b67282a2bb/pnpm-lock.yaml"
+          "mappingEvidence": "https://registry.npmjs.org/tree-sitter-lua/-/tree-sitter-lua-2.1.3.tgz"
+        },
+        "build": {
+          "reason": "The published binary's external scanner never resets its state: `external_scanner_create` returns uninitialised memory and `external_scanner_deserialize` ignores every serialized state that is not exactly 2 bytes, including the empty reset state Tree-sitter passes before each parse. One loaded Language therefore parsed identical Lua differently on the second and later parses.",
+          "recipe": "scripts/build-lua-grammar.mjs",
+          "patch": "scripts/lua-grammar/scanner.patch",
+          "compiler": "emcc 6.0.9-git",
+          "sourceTarball": "https://registry.npmjs.org/tree-sitter-lua/-/tree-sitter-lua-2.1.3.tgz",
+          "sourceIntegrity": "sha512-BmRSRI0Y4J47cE2cODyXsPiueDSAnIrFLJqOP/gKIJhGa4HoGpvEccmNuhAEVGtCrgaHGhaIkWeqiMGCgQ0cfw==",
+          "sources": {
+            "src/parser.c": "80553c8ab4e942339a0ec116353d3702d44a8b43e4930fb23c109435ce26a2e4",
+            "src/scanner.c": "98ad90f9acaea89e1bed34f1505eca2b55b0279df06d21b18b96b89fd3497bce",
+            "src/grammar.json": "91750ca8369dd3601097f1ce9dce9ce2daf3309e64e2a5a7278638553662e305"
+          },
+          "modification": "`src/parser.c` is compiled unmodified, so the grammar tables and every node type stay upstream. Only `src/scanner.c` is patched, to zero the scanner state in `external_scanner_create` and to reset it on every `external_scanner_deserialize` before applying a 2-byte serialized state \u2014 the same lifecycle the maintained tree-sitter-grammars/tree-sitter-lua fork uses.",
+          "patchedScannerSha256": "268530850233545bde591d88fb2c9599997fb4f35c63b996ce637bba33f7eda1"
         },
         "license": {
           "spdx": "MIT",

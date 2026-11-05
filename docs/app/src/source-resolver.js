@@ -58,9 +58,11 @@
       seen.add(path);
       const data = configs.get(path); if (!data) return {};
       const dir = dirname(path); let inherited = {};
-      if (typeof data.extends === "string" && data.extends.startsWith(".")) {
-        const parent = joinRelative(dir, data.extends);
-        inherited = compilerOptions(configs.has(parent) ? parent : parent + ".json", seen);
+      // TypeScript 5 accepts an array of bases; later entries override earlier ones.
+      for (const item of Array.isArray(data.extends) ? data.extends : [data.extends]) {
+        if (typeof item !== "string" || !item.startsWith(".")) continue;
+        const parent = joinRelative(dir, item);
+        inherited = { ...inherited, ...compilerOptions(configs.has(parent) ? parent : parent + ".json", seen) };
       }
       const options = data.compilerOptions || {};
       const base = typeof options.baseUrl === "string" ? joinRelative(dir, options.baseUrl) ?? "" : inherited.base ?? dir;
@@ -88,21 +90,147 @@
       moduleResults.set(key, result);
       return result;
     }
-    function javascript(path, spec) {
-      const dir = dirname(path);
-      const compiled = compilerResolve(path, spec);
-      if (compiled) return compiled;
-      // Framework source extensions are not resolved by TypeScript itself.
-      // Otherwise its failure is authoritative once the compiler is available.
-      if (typescript && !/\.(?![cm]?[jt]sx?$)[^./]+$/.test(spec)) return spec.startsWith(".") || spec.startsWith("/") || spec.startsWith("#") || /^[@~]\//.test(spec) ? unresolved("The included project configuration does not resolve this source module") : external(spec);
-      if (spec.startsWith(".")) return chooseOrdered(jsCandidates(joinRelative(dir, spec)));
-      const config = compilerOptions(configFor(path));
+    /** The `paths` entry that claims this specifier, with its substituted candidates.
+     *  Project configuration is read as data; nothing from the analyzed project runs. */
+    function configuredAlias(config, spec) {
       for (const [pattern, targets] of Object.entries(config.paths || {}).sort(([a], [b]) => Number(b === spec) - Number(a === spec) || b.split("*")[0].length - a.split("*")[0].length)) {
         const [before, after = ""] = pattern.split("*"), star = pattern.includes("*");
         if (star ? !spec.startsWith(before) || !spec.endsWith(after) : spec !== pattern) continue;
         const captured = star ? spec.slice(before.length, after ? -after.length : undefined) : "";
-        const candidates = (Array.isArray(targets) ? targets : []).filter(t => typeof t === "string").flatMap(t => jsCandidates(joinRelative(config.pathsBase, t.replace("*", captured))));
-        return chooseOrdered(candidates);
+        const substitutions = (Array.isArray(targets) ? targets : []).filter(t => typeof t === "string").map(t => joinRelative(config.pathsBase, t.replace("*", captured))).filter(Boolean);
+        return { pattern, substitutions };
+      }
+      return null;
+    }
+    // A `paths` pattern maps a specifier into the project's own source tree. When the
+    // mapped file is not in the snapshot the specifier is an unresolved local module,
+    // never an external package: inventing a dependency would hide the miss.
+    const aliasMiss = alias => unresolved(`The configured path alias "${alias.pattern}" maps this specifier to ${alias.substitutions.join(", ") || "no path"}, which is not an included file`);
+    const SCRIPT_FILE = /\.(?:[cm]?[jt]sx?)$/;
+    /* js-relative-exact-source-extension. A relative specifier that spells a
+       TypeScript-only source extension (`./auth.server.ts`, `.tsx`, `.mts`, `.cts`)
+       that names an included file exactly offers that file as a candidate, never a
+       binding: which configuration governs a file is open-world. moduleSuffixes can
+       send `./x.ts` to `x.ios.ts` from any tsconfig whose `include` reaches the file —
+       one in a dropped or ignored directory, or a project reference that is never
+       read — and a bundler alias (vite, webpack), a Deno import map or URL decoding of
+       a `%` escape can remap a relative specifier with nothing in the snapshot that
+       proves their absence. The compiler's pick is offered too when it differs.
+       Returns null when the rule does not apply. */
+    function exactSourceExtension(path, spec) {
+      if (!/^\.\.?\//.test(spec) || !/\.(?:[cm]?ts|tsx)$/.test(spec) || /\.d\.(?:[cm]?ts|tsx)$/.test(spec) || /[?#]/.test(spec) || !SCRIPT_FILE.test(path)) return null;
+      const target = joinRelative(dirname(path), spec);
+      if (!target || !files.has(target)) return null;
+      return { targets: [...new Set([target, ...(compilerResolve(path, spec)?.targets || [])])], status: "candidate", engine: "source-resolver", rule: "js-relative-exact-source-extension",
+        reasonCode: "js-relative-exact-source-extension-unproven",
+        reason: `${target} is the file this specifier spells, but the binding is unproven: a tsconfig anywhere (moduleSuffixes), a bundler alias or an import map can redirect a relative specifier, and which of them governs this file is not established by the snapshot` };
+    }
+    /** The first `extends` of this config chain that is not an included, readable
+     *  file: a package specifier (node_modules is never read) or a missing relative file. */
+    function unreadableExtends(configPath, seen = new Set()) {
+      if (!configPath || seen.has(configPath)) return null;
+      seen.add(configPath);
+      const data = configs.has(configPath) ? configs.get(configPath) : files.has(configPath) ? json(files.get(configPath).text) : undefined;
+      if (!data || typeof data !== "object") return { config: configPath, extends: configPath };
+      const list = data.extends === undefined ? [] : Array.isArray(data.extends) ? data.extends : [data.extends];
+      for (const item of list) {
+        if (typeof item !== "string" || !item.startsWith(".")) return { config: configPath, extends: String(item) };
+        const parent = joinRelative(dirname(configPath), item);
+        const found = parent !== null && (files.has(parent) ? parent : files.has(parent + ".json") ? parent + ".json" : null);
+        if (!found) return { config: configPath, extends: item };
+        const deeper = unreadableExtends(found, seen);
+        if (deeper) return deeper;
+      }
+      return null;
+    }
+    /** One key of a package.json "imports"/"exports" map, picked as Node does:
+     *  an exact key, else the star pattern with the longest prefix. */
+    function matchSubpathKey(map, spec) {
+      if (Object.hasOwn(map, spec) && !spec.includes("*")) return { key: spec, captured: null };
+      let best = null;
+      for (const key of Object.keys(map)) {
+        const star = key.indexOf("*");
+        if (star < 0 || key.indexOf("*", star + 1) >= 0) continue;
+        const before = key.slice(0, star), after = key.slice(star + 1);
+        if (!spec.startsWith(before) || spec === before || spec.length < key.length || !spec.endsWith(after)) continue;
+        if (!best || before.length > best.before.length || (before.length === best.before.length && key.length > best.key.length)) best = { key, before, captured: spec.slice(before.length, spec.length - after.length) };
+      }
+      return best;
+    }
+    /** The single string a conditional target reaches whatever the active conditions:
+     *  every leaf names the same path. Arrays, null leaves and disagreeing leaves are not one. */
+    function unconditionalTarget(value) {
+      if (typeof value === "string") return value;
+      if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+      const leaves = new Set();
+      const walk = node => {
+        if (typeof node === "string") { leaves.add(node); return true; }
+        if (!node || typeof node !== "object" || Array.isArray(node)) return false;
+        const keys = Object.keys(node);
+        return keys.length > 0 && keys.every(key => !/^\d+$/.test(key) && walk(node[key]));
+      };
+      return walk(value) && leaves.size === 1 ? [...leaves][0] : null;
+    }
+    const INVALID_SEGMENT = /(?:^|\/)(?:\.|\.\.|node_modules)(?:\/|$)/i;
+    /* js-package-imports. A `#` specifier is looked up in the "imports" map of the
+       importer's package scope — the nearest package.json above it (Node's
+       PACKAGE_IMPORTS_RESOLVE; tsc follows the same map under node16/nodenext/bundler).
+       This rule never binds: the governing package.json can be one the snapshot left
+       out, tsc consults `paths` and `baseUrl` (of whichever config governs the file)
+       first, compiles against the TypeScript source while the runtime loads the
+       emitted output, and resolves conditions, trailing-slash folder keys and pattern
+       precedence differently per tool. So when one exact or single-star key matches
+       a "./" target with no ".", ".." or node_modules segment that is an included
+       file, that file is offered as a candidate: with the most specific reason the
+       snapshot shows, else `js-package-imports-unproven`. Returns null when the rule
+       does not apply. */
+    function packageImports(path, spec) {
+      if (!spec.startsWith("#") || spec === "#" || spec.startsWith("#/") || !SCRIPT_FILE.test(path)) return null;
+      let dir = dirname(path), scope = null;
+      while (true) {
+        const manifest = dir ? dir + "/package.json" : "package.json";
+        if (files.has(manifest)) { scope = { dir, manifest, value: json(files.get(manifest).text) }; break; }
+        if (!dir) break; dir = dirname(dir);
+      }
+      const map = scope?.value?.imports;
+      if (!map || typeof map !== "object" || Array.isArray(map)) return null;
+      const match = matchSubpathKey(map, spec);
+      if (!match) return null;
+      const candidate = (reasonCode, reason, targets = []) => ({ targets, status: "candidate", engine: "source-resolver", rule: "js-package-imports", reasonCode, reason });
+      const raw = unconditionalTarget(map[match.key]);
+      if (raw === null) return candidate("package-imports-conditional", `The "imports" entry "${match.key}" in ${scope.manifest} depends on which resolver conditions are active, and they are not evaluated`);
+      if (!raw.startsWith("./") || INVALID_SEGMENT.test(raw.slice(2)) || (match.captured !== null && INVALID_SEGMENT.test(match.captured))) return null;
+      const target = joinRelative(scope.dir, match.captured === null ? raw : raw.replaceAll("*", match.captured));
+      if (!target || !files.has(target)) return null;
+      const siblings = jsCandidates(target).filter(p => p !== target && files.has(p));
+      if (siblings.length) return candidate("package-imports-source-substitution", `${target} is the "imports" target, but the compiler substitutes ${siblings[0]} for it, so the type-checked and the run file differ`, [target]);
+      const configPath = configFor(path);
+      const blocked = unreadableExtends(configPath);
+      if (blocked) return candidate("tsconfig-extends-unreadable", `${blocked.config} extends "${blocked.extends}", which is not an included file, so the \`paths\` it may contribute (tried before package imports) are unknown`, [target]);
+      const config = compilerOptions(configPath);
+      const alias = configuredAlias(config, spec);
+      if (alias) return candidate("tsconfig-paths-precedes-imports", `The path alias "${alias.pattern}" in ${configPath} claims this specifier before package imports are consulted`, [target]);
+      if (config.base !== undefined && chooseOrdered(jsCandidates(joinRelative(config.base, spec))).targets.length) return candidate("tsconfig-baseurl-precedes-imports", `A file under baseUrl answers this specifier before package imports are consulted`, [target]);
+      return candidate("js-package-imports-unproven", `${target} is what the "imports" entry "${match.key}" in ${scope.manifest} names, but subpath-import binding is unproven: a left-out package.json, the config that governs this file, emitted output and per-tool condition and pattern rules can each send it elsewhere`, [target]);
+    }
+    function javascript(path, spec) {
+      const dir = dirname(path);
+      const exact = exactSourceExtension(path, spec) || packageImports(path, spec);
+      if (exact) return exact;
+      const compiled = compilerResolve(path, spec);
+      if (compiled) return compiled;
+      const config = compilerOptions(configFor(path));
+      const alias = spec.startsWith(".") ? null : configuredAlias(config, spec);
+      // Framework source extensions are not resolved by TypeScript itself.
+      // Otherwise its failure is authoritative once the compiler is available.
+      if (typescript && !/\.(?![cm]?[jt]sx?$)[^./]+$/.test(spec)) {
+        if (alias) return aliasMiss(alias);
+        return spec.startsWith(".") || spec.startsWith("/") || spec.startsWith("#") || /^[@~]\//.test(spec) ? unresolved("The included project configuration does not resolve this source module") : external(spec);
+      }
+      if (spec.startsWith(".")) return chooseOrdered(jsCandidates(joinRelative(dir, spec)));
+      if (alias) {
+        const result = chooseOrdered(alias.substitutions.flatMap(jsCandidates));
+        return result.targets.length ? result : aliasMiss(alias);
       }
       if (config.base !== undefined) { const result = chooseOrdered(jsCandidates(joinRelative(config.base, spec))); if (result.targets.length) return result; }
       for (const { dir: packageDir, value } of packages) {
@@ -117,6 +245,10 @@
     }
     return function resolve(path, fact) {
       const spec = fact.specifier || "", form = fact.form || "", dir = dirname(path);
+      // A computed specifier has no static target. Saying so is the answer; a
+      // path guess from surrounding text would be an invented relationship.
+      if (["dynamic-expression", "commonjs-expression"].includes(form))
+        return unresolved(`The module specifier is the expression \`${spec}\`, whose value is only known when the program runs; no code was executed, so this reference has no static target`);
       if (["javascript-static", "js-import", "javascript-import", "dynamic-literal", "commonjs-literal"].includes(form)) return javascript(path, spec);
       if (form.startsWith("python")) {
         let module = spec, prefixes = ["", "src"];
@@ -142,26 +274,43 @@
         return spec.startsWith(".") ? direct : external(spec);
       }
       if (form === "go-import") {
-        for (const mod of goModules) if (spec === mod.name || spec.startsWith(mod.name + "/")) {
+        // The longest declared module path wins, as nested modules shadow their parent.
+        // When two included go.mod files declare the same path, the importing file's
+        // own go.mod answers: a copy elsewhere is not the module this file builds in.
+        const own = goModules.filter(item => !item.dir || path === item.dir || path.startsWith(item.dir + "/")).sort((a, b) => b.dir.length - a.dir.length)[0];
+        const matches = goModules.filter(item => spec === item.name || spec.startsWith(item.name + "/"));
+        const longest = Math.max(-1, ...matches.map(item => item.name.length));
+        const tied = matches.filter(item => item.name.length === longest);
+        const mod = tied.includes(own) ? own : tied[0];
+        if (mod) {
           const packageDir = joinRelative(mod.dir, spec.slice(mod.name.length).replace(/^\//, "")) ?? mod.dir;
           const targets = [...files.keys()].filter(p => dirname(p) === packageDir && p.endsWith(".go") && !p.endsWith("_test.go"));
-          return targets.length ? { targets } : unresolved("Go package is within this module but its source files are unavailable");
+          if (!targets.length && (own === mod || tied.length === 1)) return unresolved("Go package is within this module but its source files are unavailable");
+          // A package of the importing file's own module is what go.mod proves. Another
+          // module is used only through a require/replace or go.work entry, none of
+          // which is evaluated here, so its package is a candidate.
+          // A Go import names a package, not a file. A one-file package is that file;
+          // a package of several files is a candidate set over its files, since the
+          // import alone does not say which file holds what the importer uses.
+          if (own === mod) return targets.length === 1
+            ? { targets, status: "resolved", engine: "source-resolver", rule: "go-module-path-own-module", proof: { module: mod.name, goMod: joinRelative(mod.dir, "go.mod") ?? "go.mod", package: packageDir || "." } }
+            : { targets, status: "candidate", engine: "source-resolver", rule: "go-module-path-package-files",
+              reason: `${spec} is the package ${packageDir || "."} of ${mod.name}, the module of ${path}; the import names the package, which has ${targets.length} source files, so each file is a candidate rather than a proven target` };
+          // When several go.mod files declare this path and none is the importer's own,
+          // each copy is equally possible: offer every tied package, not the first by path order.
+          const copies = tied.map(item => ({ item, dir: joinRelative(item.dir, spec.slice(item.name.length).replace(/^\//, "")) ?? item.dir }));
+          const tiedTargets = [...new Set(copies.flatMap(copy => [...files.keys()].filter(p => dirname(p) === copy.dir && p.endsWith(".go") && !p.endsWith("_test.go"))))].sort();
+          const declaredBy = tied.map(item => joinRelative(item.dir, "go.mod") ?? "go.mod");
+          if (!tiedTargets.length) return unresolved("Go package is within this module but its source files are unavailable");
+          return { targets: tiedTargets, status: "candidate", engine: "source-resolver", rule: "go-module-path-other-module",
+            reason: `${spec} is in the module ${mod.name} declared by ${declaredBy.join(" and ")}, not in ${own ? `${own.name}, the module of ${path}` : `a module that contains ${path}`}; require, replace and go.work entries are not evaluated, so which copy the build uses is not established` };
         }
         return external(spec);
       }
-      if (form === "rust-mod") {
-        const base = /(?:^|\/)(?:mod|lib|main)\.rs$/.test(path) ? dir : path.replace(/\.rs$/, "");
-        return choose([joinRelative(base, spec + ".rs"), joinRelative(base, spec + "/mod.rs")]);
-      }
-      if (form === "rust-use") {
-        if (!/^(?:crate|self|super)::/.test(spec)) return external(spec);
-        let base = dir;
-        if (spec.startsWith("crate::")) { let cursor = dir; while (cursor && !files.has(cursor + "/Cargo.toml")) cursor = dirname(cursor); base = (cursor ? cursor + "/" : "") + "src"; }
-        else if (spec.startsWith("super::")) base = dirname(dir);
-        const names = spec.replace(/^(?:crate|self|super)::/, "").split("::").filter(n => /^\w+$/.test(n));
-        while (names.length) { const stem = joinRelative(base, names.join("/")); const result = choose([stem + ".rs", stem + "/mod.rs"]); if (result.targets.length) return result; names.pop(); }
-        return unresolved("Rust module path cannot be uniquely resolved from included files");
-      }
+      // Rust module files and C# namespaces are resolved by the language adapter
+      // in src/semantic-project.js, which owns the module-file and namespace-identity
+      // rules. This resolver reports them as unhandled so a weaker path or basename
+      // lookup here can never override the adapter's verdict.
       if (["c-include", "cpp-include"].includes(form)) {
         const result = choose([joinRelative(dir, spec), spec, "include/" + spec]);
         return result.targets.length ? result : fact.system ? external(spec) : result;
@@ -176,7 +325,29 @@
       if (form === "php-include" || form === "shell-source") return choose([joinRelative(dir, spec), spec]);
       if (form === "lua-require") { const stem = spec.replace(/\./g, "/"), result = choose([stem + ".lua", stem + "/init.lua", joinRelative(dir, stem + ".lua")]); return result.targets.length ? result : external(spec); }
       if (form === "css-import") return choose([joinRelative(dir, spec)]);
-      if (["php-use", "csharp-using", "swift-import"].includes(form)) return external(spec);
+      if (form === "swift-import") {
+        const name = spec.split(".").pop();
+        const result = choose([...files.keys()].filter(p => p === name + ".swift" || p.endsWith("/" + name + ".swift")));
+        return result.targets.length ? result : external(spec);
+      }
+      if (form === "php-use") {
+        const stem = spec.replace(/\\/g, "/");
+        const result = choose([stem + ".php", "src/" + stem + ".php"]);
+        return result.targets.length ? result : external(spec);
+      }
+      if (form === "markdown-link" || form === "md-link") {
+        const clean = spec.split(/[?#]/)[0];
+        if (!clean || /^(?:[a-z][\w+.-]*:|\/|#)/i.test(clean)) return external(spec);
+        // A link is read relative to the document that holds it; that exact path is
+        // its target. The same path from the snapshot root is only a guess.
+        const own = joinRelative(dir, clean);
+        if (own && files.has(own)) return { targets: [own], status: "resolved", engine: "source-resolver", rule: "markdown-link-document-relative" };
+        const guess = choose([clean]);
+        return guess.targets.length
+          ? { ...guess, status: "candidate", engine: "source-resolver", rule: "markdown-link-root-guess", reason: `${guess.targets[0]} is the link's path read from the snapshot root, not relative to ${path}, which is how the link is resolved` }
+          : guess;
+      }
+      if (["php-use", "swift-import"].includes(form)) return external(spec);
       return null;
     };
   }

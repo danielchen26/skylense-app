@@ -59,15 +59,17 @@
       }
       return { incoming: inEdges, outgoing: outEdges };
     }
+    /** `type` is "all", one relation type, or a predicate over edges (the app's visible-relation filter). */
     function boundary(id, type = "all") {
       const members = new Set(getMembers(id));
+      const keep = typeof type === "function" ? type : (edge) => type === "all" || edge.type === type;
       const result = { incoming: [], outgoing: [], internal: [] };
       for (const member of members) {
         for (const edge of incoming.get(member) || [])
-          if ((type === "all" || edge.type === type) && !members.has(edge.source))
+          if (keep(edge) && !members.has(edge.source))
             result.incoming.push(edge.id);
         for (const edge of outgoing.get(member) || []) {
-          if (type !== "all" && edge.type !== type) continue;
+          if (!keep(edge)) continue;
           result[members.has(edge.target) ? "internal" : "outgoing"].push(edge.id);
         }
       }
@@ -270,6 +272,10 @@
         fail("group 与父容器所属分组不一致。");
       for (const field of ["inputs", "outputs"])
         if (item[field] !== undefined) textList(item[field], field);
+      if (item.sourceContract !== undefined) {
+        if (!root.SkylenseSourceContracts) fail("sourceContract 需要加载校验模块。");
+        root.SkylenseSourceContracts.validate(item.sourceContract);
+      }
       if (item.functions !== undefined)
         for (const fn of array(item.functions, "functions", limits.nodes)) {
           object(fn, "function");
@@ -279,6 +285,10 @@
           for (const field of ["inputs", "outputs"])
             if (fn[field] !== undefined)
               textList(fn[field], `function.${field}`);
+          if (fn.sourceContract !== undefined) {
+            if (!root.SkylenseSourceContracts) fail("sourceContract 需要加载校验模块。");
+            root.SkylenseSourceContracts.validate(fn.sourceContract);
+          }
           checkEvidence(fn);
         }
     }

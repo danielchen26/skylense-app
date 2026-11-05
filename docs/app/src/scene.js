@@ -31,27 +31,55 @@
     const pageSize = Number.isFinite(options.pageSize)
       ? Math.min(120, Math.max(1, Math.floor(options.pageSize))) : 120;
     let boundedOpen = null, frontierProjection = null, unpagedIds = null;
-    function paginate(values, reason) {
-      if (values.length <= pageSize) return values;
-      unpagedIds = values.map(n => n.id);
-      const totalPages = Math.ceil(values.length / pageSize);
-      let page = Number.isFinite(options.page) ? Math.floor(options.page) : 0;
-      if (!Number.isFinite(options.page)) {
-        const positions = new Map(unpagedIds.map((id, i) => [id, i]));
-        for (const revealId of options.revealIds || []) {
-          let id = revealId;
-          while (id && all.has(id) && !positions.has(id)) {
-            const n = all.get(id);
-            id = n.parentId || (!containers.has(id) ? n.group : null);
-          }
-          if (positions.has(id)) { page = Math.floor(positions.get(id) / pageSize); break; }
+    /* Where `revealIds` (the reader's selection) reached into this build. Each is null when that
+       step never consulted them, so `revealKey` below can say exactly when a different selection
+       would build this same scene. */
+    let revealFrontier = null, revealPaging = null, revealEndpoints = null;
+    const parentOf = (id) => {
+      const n = all.get(id);
+      return n.parentId || (!containers.has(id) ? n.group : null);
+    };
+    /** The page a reveal lands on: that of its first id whose chain reaches a paged value. */
+    function revealedPage(revealIds, pageOf) {
+      for (const revealId of revealIds) {
+        let id = revealId;
+        while (id && all.has(id) && !pageOf.has(id)) id = parentOf(id);
+        if (pageOf.has(id)) return pageOf.get(id);
+      }
+      return 0;
+    }
+    /** Every revealed id and all of its ancestors. */
+    function revealChain(revealIds) {
+      const chain = new Set();
+      for (const revealId of revealIds) {
+        let id = revealId;
+        while (id && all.has(id) && !chain.has(id)) {
+          chain.add(id);
+          id = parentOf(id);
         }
       }
+      return chain;
+    }
+    /**
+     * Show one page of `values`. Pages are `size` items each, or the explicit `pages` (arrays of
+     * values, in order) when boundFrontier packed them around opened containers.
+     */
+    function paginate(values, reason, size = pageSize, pages = null) {
+      if (!pages && values.length <= size) return values;
+      unpagedIds = values.map(n => n.id);
+      const chunks = pages || Array.from({ length: Math.ceil(values.length / size) }, (_, i) => values.slice(i * size, (i + 1) * size));
+      const totalPages = chunks.length;
+      let page = Number.isFinite(options.page) ? Math.floor(options.page) : 0;
+      if (!Number.isFinite(options.page)) {
+        const pageOf = new Map(chunks.flatMap((chunk, i) => chunk.map((n) => [n.id, i])));
+        revealPaging = { pageOf, totalPages };
+        page = revealedPage(options.revealIds || [], pageOf);
+      }
       page = Math.max(0, Math.min(totalPages - 1, page));
-      const displayed = values.slice(page * pageSize, (page + 1) * pageSize);
+      const displayed = chunks[page];
       frontierProjection = {
         ...frontierProjection,
-        limited: true, maxVisible: pageSize, requestedVisible: values.length,
+        limited: true, maxVisible: size, requestedVisible: values.length,
         totalNodes: model.nodes.length, visibleNodes: displayed.length,
         collapsed: frontierProjection?.collapsed || [], reason,
         paging: { page, totalPages, totalItems: values.length,
@@ -60,6 +88,12 @@
       };
       return displayed;
     }
+    /**
+     * Open a real hierarchy frontier within the reading budget, and return the roots to draw
+     * when that needed its own paging (otherwise null: the caller pages by size as usual).
+     * Folded descendants keep their actual ancestor, so relationship projection preserves
+     * canonical edges rather than slicing nodes out of the graph.
+     */
     function boundFrontier(roots) {
       const maxVisible = Number.isFinite(options.maxVisible)
         ? Math.min(pageSize, Math.max(1, Math.floor(options.maxVisible))) : pageSize;
@@ -68,42 +102,67 @@
       const count = (n) => expands(n)
         ? children(n.id).reduce((sum, child) => sum + count(child), 0) : 1;
       const requestedVisible = roots.reduce((sum, n) => sum + count(n), 0);
-      if (requestedVisible <= maxVisible) return;
-      // Expand a real hierarchy frontier within the reading budget. Folded
-      // descendants keep their actual ancestor, so relationship projection
-      // preserves canonical edges rather than slicing nodes out of the graph.
-      const frontier = new Map(roots.map((n) => [n.id, n]));
-      const priority = new Set();
-      for (const revealId of options.revealIds || []) {
-        let id = revealId;
-        while (id && all.has(id) && !priority.has(id)) {
-          priority.add(id);
-          const n = all.get(id);
-          id = n.parentId || (!containers.has(id) ? n.group : null);
+      if (requestedVisible <= maxVisible) return null;
+      /* Only the chain's expanding containers steer the walk below: a non-expanding entry is
+         skipped wherever the stable priority sort puts it, and leaves the others' order intact. */
+      revealFrontier = (ids) => [...revealChain(ids)].filter((id) => expands(all.get(id))).sort();
+      const priority = revealChain(options.revealIds || []);
+      const rank = (n) => (open.has(n.id) ? 2 : 0) + (priority.has(n.id) ? 1 : 0);
+      /** The budgeted walk from `start`: containers the reader opened first, then the reveal. */
+      const walk = (start) => {
+        const frontier = new Map(start.map((n) => [n.id, n]));
+        boundedOpen = new Set();
+        // A scope that exceeds the budget by itself cannot fold its siblings further.
+        const queue = frontier.size > maxVisible ? [] : [...start];
+        while (queue.length) {
+          queue.sort((a, b) => rank(b) - rank(a));
+          const n = queue.shift();
+          if (!expands(n)) continue;
+          const kids = children(n.id);
+          if (frontier.size + kids.length - 1 > maxVisible) continue;
+          boundedOpen.add(n.id);
+          frontier.delete(n.id);
+          for (const child of kids) { frontier.set(child.id, child); queue.push(child); }
         }
-      }
-      boundedOpen = new Set();
-      // If this scope itself exceeds the budget, none of its real siblings can
-      // be folded further. Page the scope before measuring or drawing cards.
-      const queue = frontier.size > maxVisible ? [] : [...roots];
-      while (queue.length) {
-        queue.sort((a, b) => Number(priority.has(b.id)) - Number(priority.has(a.id)));
-        const n = queue.shift();
-        if (!expands(n)) continue;
-        const kids = children(n.id);
-        if (frontier.size + kids.length - 1 > maxVisible) continue;
-        boundedOpen.add(n.id);
-        frontier.delete(n.id);
-        for (const child of kids) { frontier.set(child.id, child); queue.push(child); }
-      }
-      frontierProjection = {
-        limited: true, maxVisible, requestedVisible,
-        totalNodes: model.nodes.length, visibleNodes: frontier.size,
-        collapsed: [...frontier.values()].filter(expands).map((n) => n.id),
-        reason: "hierarchy-frontier",
-        // These siblings require explicit view pages, never model truncation.
-        unfoldable: frontier.size > maxVisible,
+        return frontier;
       };
+      /* Containers the reader opened (`open`) whose children fit one screen. When the scope's
+         siblings leave no room for them, the siblings are paged around them instead: pages are
+         packed in order, an opened container counting as its children, so each one opens on the
+         page it sits on. The page boundaries depend on `open` only; the selection only picks
+         which page is shown, and never decides which expanded container is drawn open. */
+      const openable = roots.filter((n) => open.has(n.id) && expands(n) && children(n.id).length <= maxVisible);
+      let frontier = roots.length <= maxVisible ? walk(roots) : null;
+      if (!openable.length || (frontier && openable.every((n) => boundedOpen.has(n.id)))) {
+        if (!frontier) frontier = walk(roots);
+        frontierProjection = {
+          limited: true, maxVisible, requestedVisible,
+          totalNodes: model.nodes.length, visibleNodes: frontier.size,
+          collapsed: [...frontier.values()].filter(expands).map((n) => n.id),
+          reason: "hierarchy-frontier",
+          // These siblings require explicit view pages, never model truncation.
+          unfoldable: frontier.size > maxVisible,
+        };
+        return null;
+      }
+      const cost = (n) => (openable.includes(n) ? children(n.id).length : 1);
+      const pages = [];
+      let used = 0;
+      for (const n of roots) {
+        if (!pages.length || used + cost(n) > maxVisible) { pages.push([]); used = 0; }
+        pages.at(-1).push(n);
+        used += cost(n);
+      }
+      frontierProjection = { requestedVisible, collapsed: [] };
+      const displayed = paginate(roots, "paged-scope", pageSize, pages);
+      frontier = walk(displayed);
+      frontierProjection = {
+        ...frontierProjection,
+        requestedVisible,
+        collapsed: [...frontier.values()].filter(expands).map((n) => n.id),
+        unfoldable: true,
+      };
+      return displayed;
     }
     const W = 220,
       H = 132,
@@ -309,8 +368,7 @@
       let roots = options.scope
         ? children(options.scope)
         : model.groups.map((g) => containers.get(g.id));
-      boundFrontier(roots);
-      roots = paginate(roots, "paged-scope");
+      roots = boundFrontier(roots) || paginate(roots, "paged-scope");
       const parts = groupParts(
         roots.map((n) => measure(n, options.mode === "components")),
         options.scope || null,
@@ -350,23 +408,77 @@
       bundle: options.bundle !== false,
     });
     if (unpagedIds) {
-      const complete = root.CodeLoomRelations.project(model, {
-        visibleIds: unpagedIds, edges: edgeList, bundle: false,
-      });
-      const outsideScope = new Set(complete.hiddenEdgeIds);
+      const outsideScope = new Set(root.CodeLoomRelations.hiddenEdgeIds(model, {
+        visibleIds: unpagedIds, edges: edgeList,
+      }));
       frontierProjection.offPageEdgeIds = projection.hiddenEdgeIds.filter(id => !outsideScope.has(id));
       frontierProjection.paging.offPageEdgeCount = frontierProjection.offPageEdgeIds.length;
     }
+    // Declared semantic groups are projected alongside the binary relations and visual bundles
+    // they are built from. They are a third, distinct object kind: they add participants,
+    // roles and a declared activation condition, never a new causal claim about the edges.
+    const relationGroups = root.SkylenseHypergraph && model.analysis
+      ? root.SkylenseHypergraph.projectGroups(model.analysis, projection.relations)
+      : [];
+    const groupsByEdge = new Map();
+    for (const group of relationGroups)
+      for (const id of group.memberEdgeIds) {
+        if (!groupsByEdge.has(id)) groupsByEdge.set(id, []);
+        groupsByEdge.get(id).push(group.id);
+      }
+    for (const relation of projection.relations)
+      relation.groupIds = [...new Set(relation.edgeIds.flatMap((id) => groupsByEdge.get(id) || []))];
+    /*
+     * Drawing budget for relation hubs (plan §11.3/§11.4, D11). The canonical projection above
+     * stays complete — nothing is sliced out of the model — but the view must not stack
+     * thousands of relation capsules and labels on one screen. Relations beyond the budget are
+     * deferred, not dropped: they keep their identity, their member edges and a count, so the
+     * UI can report how many are not drawn and offer a way to see all of them.
+     */
+    const relationBudget = Number.isFinite(options.maxRelations)
+      ? Math.max(1, Math.floor(options.maxRelations))
+      : 120;
+    const revealed = new Set(options.revealIds || []);
+    const touchesReading = (rel) =>
+      rel.sources.some((id) => revealed.has(id)) || rel.targets.some((id) => revealed.has(id));
+    // Rank by the reader's own focus first, then by how much a single capsule carries, then by
+    // stable identity so the same scene always draws the same relations.
+    const ranked = projection.relations
+      .map((rel, order) => ({ rel, order }))
+      .sort((a, b) =>
+        Number(touchesReading(b.rel)) - Number(touchesReading(a.rel)) ||
+        b.rel.edgeIds.length - a.rel.edgeIds.length ||
+        (a.rel.id < b.rel.id ? -1 : a.rel.id > b.rel.id ? 1 : a.order - b.order));
+    const drawnIds = new Set(ranked.slice(0, relationBudget).map((entry) => entry.rel.id));
+    const drawnRelations = projection.relations.filter((rel) => drawnIds.has(rel.id));
+    const deferredRelations = projection.relations.filter((rel) => !drawnIds.has(rel.id));
+    // The reader's focus only reorders which relations are drawn when some must be deferred.
+    if (projection.relations.length > relationBudget)
+      revealEndpoints = new Set(projection.relations.flatMap((rel) => [...rel.sources, ...rel.targets]));
     const scene = {
       items,
       bounds,
       categoryBounds,
       relations: projection.relations,
+      relationGroups,
       internal: projection.internal,
       hiddenEdgeIds: projection.hiddenEdgeIds,
       wires: [],
       hubs: [],
       projection: frontierProjection,
+      /* What the view draws versus what the complete projection holds. `limited` is the honest
+         "more available" signal: the deferred relations are still enumerable by ID here. */
+      relationProjection: {
+        total: projection.relations.length,
+        drawn: drawnRelations.length,
+        deferred: deferredRelations.length,
+        limited: deferredRelations.length > 0,
+        budget: relationBudget,
+        reason: "relation-drawing-budget",
+        drawnRelationIds: drawnRelations.map((rel) => rel.id),
+        deferredRelationIds: deferredRelations.map((rel) => rel.id),
+        deferredEdgeCount: deferredRelations.reduce((sum, rel) => sum + rel.edgeIds.length, 0),
+      },
     };
     const lookup = new Map(items.map((p) => [p.n.id, p]));
     const rectangles = items.map((p) => ({
@@ -403,7 +515,7 @@
       ...bounds.map((b) => b.y + b.h),
       ...categoryBounds.map((b) => b.y + b.h),
     );
-    for (const rel of projection.relations) {
+    for (const rel of drawnRelations) {
       const ends = [...new Set([...rel.sources, ...rel.targets])]
         .map((id) => lookup.get(id))
         .filter(Boolean);
@@ -630,6 +742,25 @@
         ...scene.hubs.map((h) => h.y + h.h),
         ...scene.wires.flatMap((w) => w.points.map((p) => p.y)),
       ) + 60;
+    /* What the reveal decided, as a comparable key: the expanding containers on its chain (the
+       bounded frontier's priority), the page it lands on and the drawn-relation endpoints it
+       touches (the deferral ranking). The page size follows from the frontier, so a page is only
+       computed under this build's own frontier; otherwise the answer is unknown (null). */
+    const ownFrontier = revealFrontier ? JSON.stringify(revealFrontier(options.revealIds || [])) : null;
+    const revealKey = (ids) => {
+      const frontier = revealFrontier ? JSON.stringify(revealFrontier(ids)) : null;
+      if (revealPaging && frontier !== ownFrontier) return null;
+      const page = revealPaging
+        ? Math.max(0, Math.min(revealPaging.totalPages - 1, revealedPage(ids, revealPaging.pageOf)))
+        : null;
+      const touched = revealEndpoints ? [...new Set(ids)].filter((id) => revealEndpoints.has(id)).sort() : null;
+      return JSON.stringify([frontier, page, touched]);
+    };
+    const ownKey = revealKey(options.revealIds || []);
+    /** True when building with the same options but `ids` as revealIds yields this very scene. */
+    Object.defineProperty(scene, "sharesReveal", {
+      value: (ids) => revealKey(ids || []) === ownKey,
+    });
     return scene;
   }
   root.CodeLoomScene = { build };

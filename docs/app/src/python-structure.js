@@ -16,7 +16,7 @@
     while (i < text.length) {
       if (tokens.length >= 200000) { truncated = true; break; }
       const start = i, atLine = line, col = column, char = text[i];
-      if (char === "\n") { advance(); tokens.push({ kind: "newline", value: "\n", line: atLine, endLine: atLine, column: col }); continue; }
+      if (char === "\n") { advance(); tokens.push({ kind: "newline", value: "\n", start, end: i, line: atLine, endLine: atLine, column: col }); continue; }
       if (/\s/.test(char)) { advance(); continue; }
       if (char === "#") { while (i < text.length && text[i] !== "\n") advance(); continue; }
       if (char === "\\" && /^(?:\r?\n)/.test(text.slice(i + 1, i + 3))) { advance(); if (text[i] === "\r") advance(); advance(); continue; }
@@ -34,14 +34,14 @@
           else { if (delimiter.length === 1 && text[i] === "\n") break; advance(); }
         }
         if (text.slice(i, i + delimiter.length) === delimiter) for (let n = 0; n < delimiter.length; n++) advance();
-        tokens.push({ kind: "data", value: "", line: atLine, endLine: line, column: col }); continue;
+        tokens.push({ kind: "data", value: "", start, end: i, line: atLine, endLine: line, column: col }); continue;
       }
       if (/[\p{L}_]/u.test(char)) {
         advance(); while (i < text.length && /[\p{L}\p{N}_]/u.test(text[i])) advance();
-        tokens.push({ kind: "word", value: text.slice(start, i), line: atLine, endLine: line, column: col }); continue;
+        tokens.push({ kind: "word", value: text.slice(start, i), start, end: i, line: atLine, endLine: line, column: col }); continue;
       }
       advance();
-      tokens.push({ kind: "punct", value: char, line: atLine, endLine: line, column: col });
+      tokens.push({ kind: "punct", value: char, start, end: i, line: atLine, endLine: line, column: col });
     }
     return { tokens, truncated };
   }
@@ -69,8 +69,15 @@
   }
   function splitArguments(tokens) {
     const output = []; let group = [], depth = 0;
+    const lambdas = [];
     for (const token of tokens) {
-      if (token.value === "," && depth === 0) { output.push(group); group = []; continue; }
+      if (token.kind === "word" && token.value === "lambda") lambdas.push(depth);
+      if (token.value === ":" && lambdas.length && lambdas.at(-1) === depth) {
+        lambdas.pop();
+        group.push(token);
+        continue;
+      }
+      if (token.value === "," && depth === 0 && !lambdas.length) { output.push(group); group = []; continue; }
       group.push(token);
       if (["(", "[", "{"].includes(token.value)) depth++;
       else if ([")", "]", "}"].includes(token.value)) depth--;
@@ -106,7 +113,7 @@
         const at = item.findIndex(token => token.value === "as"), pathTokens = at < 0 ? item : item.slice(0, at);
         const name = pathTokens.map(token => token.value).join(""), alias = at >= 0 ? item[at + 1]?.value : from ? name : pathTokens[0]?.value;
         if (!name || !alias) continue;
-        const record = { module: from ? module : name, name: from ? name : null, alias, line: tokens[0].line, endLine: tokens.at(-1).endLine, owner: scope.symbol };
+        const record = { module: from ? module : name, name: from ? name : null, alias, aliased: at >= 0, line: tokens[0].line, endLine: tokens.at(-1).endLine, owner: scope.symbol };
         imports.push(record); bind(scope, alias, { kind: from ? "import" : "module-import", import: record, conditional });
       }
       return true;
@@ -128,6 +135,19 @@
       if (parseImports(tokens, scope, conditional)) return;
       const first = tokens[0].value;
       if (first === "global" || first === "nonlocal") { for (const token of tokens.slice(1)) if (token.kind === "word") scope.restricted.add(token.value); return; }
+      // `@name` and `@pkg.name` apply that callable to the declaration below them, so the
+      // decorator is a reference evaluated in this scope. `@name(...)` is an ordinary call
+      // expression and is collected by the call scan further down.
+      if (first === "@" && tokens[1]?.kind === "word") {
+        const parts = [];
+        let at = 1;
+        while (tokens[at]?.kind === "word") { parts.push(tokens[at].value); at++; if (tokens[at]?.value !== ".") break; at++; }
+        if (at === tokens.length) {
+          if (callJobs.length >= maxCalls) truncated = true;
+          else callJobs.push({ name: parts.join("."), base: parts[0], attribute: parts.length > 1, decorator: true, line: tokens[0].line, endLine: tokens.at(-1).endLine, owner: scope.symbol, scope, uncertainScope: false });
+          return;
+        }
+      }
       if (first === "case") {
         const colon = topLevelIndex(tokens, ":");
         // Pattern constructors are not calls. Captures can rebind names, so
@@ -151,9 +171,16 @@
         if (token.value === ":" && next?.value === "=" && previous?.kind === "word") bind(scope, previous.value, { kind: "shadow", conditional });
         if (["(", "[", "{"].includes(token.value)) depth++;
         else if ([")", "]", "}"].includes(token.value)) depth--;
-        if (skipCalls || token.kind !== "word" || next?.value !== "(" || previous?.value === "." || KEYWORDS.has(token.value)) continue;
+        if (skipCalls || token.kind !== "word" || next?.value !== "(" || KEYWORDS.has(token.value)) continue;
+        // `pkg.mod.fn()` is one call site whose meaning comes from its base name. Walk the
+        // dotted chain back to that base; an attribute of a call or subscript result has no
+        // name to resolve and is left alone.
+        let start = i, name = token.value;
+        while (tokens[start - 1]?.value === "." && tokens[start - 2]?.kind === "word" && !KEYWORDS.has(tokens[start - 2].value)) { start -= 2; name = tokens[start].value + "." + name; }
+        if (start !== i && (tokens[start - 1]?.value === "." || [")", "]", "}"].includes(tokens[start - 1]?.value))) continue;
+        if (start === i && previous?.value === ".") continue;
         if (callJobs.length >= maxCalls) { truncated = true; continue; }
-        callJobs.push({ name: token.value, line: token.line, endLine: token.endLine, owner: scope.symbol, scope, uncertainScope });
+        callJobs.push({ name, base: tokens[start].value, attribute: start !== i, line: tokens[start].line, endLine: token.endLine, owner: scope.symbol, scope, uncertainScope });
       }
       if (first === "for" || first === "async" && tokens[1]?.value === "for") {
         const begin = first === "async" ? 2 : 1, stop = topLevelIndex(tokens, "in", begin);
@@ -197,48 +224,107 @@
         continue;
       }
       const parent = scope.symbol, index = symbols.length, kind = keyword.value === "class" ? "class" : "function";
-      const symbol = { index, name: name.value, qualifiedName: parent === null ? name.value : symbols[parent].qualifiedName + "." + name.value, kind, line: first.line, endLine: tokens[colon].endLine, bodyEndLine: tokens.at(-1).endLine, parent };
+      const S = root.SkylenseSourceContracts;
+      const symbol = { index, name: name.value, qualifiedName: parent === null ? name.value : symbols[parent].qualifiedName + "." + name.value, kind, line: first.line, endLine: tokens[colon].endLine, bodyEndLine: tokens.at(-1).endLine, parent, inputs: [], outputs: [] };
+      if (S) symbol.sourceContract = kind === "function" ? S.contract({ language: "python", engine: "lexical", parameters: S.statusBlock("unsupported", [], "Lexical Python did not find a parameter list."), returns: S.statusBlock("unsupported", [], "Lexical Python did not find a return annotation.") }) : S.notApplicable("python", "lexical", "Not a function declaration.");
       symbols.push(symbol); bind(scope, name.value, { kind: "local", symbol: index, conditional: statement.indent > scope.bodyIndent });
-      // Base expressions, argument defaults and annotations are evaluated in the
-      // enclosing scope. Declaration names themselves are never call sites.
       inspect(tokens.slice(defAt + 2, colon), scope);
       const inner = newScope(kind, scope, index, statement.indent);
       inner.uncertainTypeParameters = tokens[defAt + 2]?.value === "[";
       if (kind === "function") {
         const open = topLevelIndex(tokens, "(", defAt + 2), close = (() => { let depth = 0; for (let i = open; i >= 0 && i < colon; i++) { if (tokens[i].value === "(") depth++; else if (tokens[i].value === ")" && --depth === 0) return i; } return -1; })();
-        if (tokens[open]?.value === "(" && close >= 0) for (const argument of splitArguments(tokens.slice(open + 1, close))) {
-          const parameter = argument.find(token => token.kind === "word"); if (parameter) bind(inner, parameter.value, { kind: "shadow" });
+        if (tokens[open]?.value === "(" && close >= 0) {
+          const paramItems = [];
+          for (const argument of splitArguments(tokens.slice(open + 1, close))) {
+            const parameter = argument.find(token => token.kind === "word"); if (parameter) bind(inner, parameter.value, { kind: "shadow" });
+            if (!argument.length) continue;
+            const raw = argument.filter(token => token.kind === "word").map(token => token.value).join(" ");
+            if (raw === "/" || raw === "*") continue;
+            const start = argument[0].start, end = argument.at(-1).end, lineStart = argument[0].line, lineEnd = argument.at(-1).endLine;
+            const piece = Number.isInteger(start) && Number.isInteger(end) ? text.slice(start, end) : "";
+            if (piece) {
+              symbol.inputs.push(piece);
+              if (S) paramItems.push(S.itemFromRange("", text, start, end, lineStart, lineEnd));
+            }
+          }
+          let returnItems = [], returnStatus = "unannotated";
+          if (tokens[close + 1]?.value === "-" && tokens[close + 2]?.value === ">") {
+            const retTokens = tokens.slice(close + 3, colon);
+            if (retTokens.length && Number.isInteger(retTokens[0].start)) {
+              const ret = text.slice(retTokens[0].start, retTokens.at(-1).end);
+              if (ret) {
+                symbol.outputs = [ret];
+                returnStatus = "explicit";
+                if (S) returnItems = [S.itemFromRange("", text, retTokens[0].start, retTokens.at(-1).end, retTokens[0].line, retTokens.at(-1).endLine)];
+              }
+            }
+          }
+          if (S) symbol.sourceContract = S.contract({
+            language: "python", engine: "lexical",
+            signature: S.itemFromRange("", text, first.start ?? 0, tokens[colon].end ?? tokens[colon].start, first.line, tokens[colon].endLine)?.pieces?.[0] || null,
+            parameters: S.statusBlock("complete", paramItems),
+            returns: S.statusBlock(returnStatus, returnItems),
+          });
         }
       }
       if (colon < tokens.length - 1) inspect(tokens.slice(colon + 1), inner);
       else stack.push(inner);
     }
+    /** The module and declaration an `a.b.fn()` callee names, or a stated reason to abstain.
+     *  Only an import binding can name a module here: a local value has no static members. */
+    function attributeTarget(job, binding, fail) {
+      const record = binding.import;
+      if (!record) return fail("Attribute call base is a declaration in this file, not an imported module");
+      let module, rest;
+      if (binding.kind === "module-import") {
+        if (record.aliased) { module = record.module; rest = job.name.slice(record.alias.length + 1); }
+        else if (job.name.startsWith(record.module + ".")) { module = record.module; rest = job.name.slice(record.module.length + 1); }
+        else return fail(`Attribute path does not stay inside the imported module "${record.module}"`);
+      } else {
+        module = record.module.endsWith(".") ? record.module + record.name : `${record.module}.${record.name}`;
+        rest = job.name.slice(record.alias.length + 1);
+      }
+      if (!rest || rest.includes(".")) return fail("Attribute chain beyond one module-level declaration is not resolved");
+      return { kind: "import", module, name: rest, alias: record.alias };
+    }
     function resolve(job) {
-      if (job.uncertainScope) return { kind: "unresolved", reason: "Lambda or comprehension scope is not resolved" };
+      const lookup = job.base || job.name;
+      const fail = reason => ({ kind: "unresolved", reason: job.decorator ? `Decorator reference: ${reason}` : reason });
+      if (job.uncertainScope) return fail("Lambda or comprehension scope is not resolved");
       let scope = job.scope, skipClasses = scope.kind === "function";
       while (scope) {
-        if (scope.omitted) return { kind: "unresolved", reason: "Enclosing declaration omitted by symbol limit" };
-        if (scope.uncertainTypeParameters) return { kind: "unresolved", reason: "Type-parameter scopes require deeper analysis" };
+        if (scope.omitted) return fail("Enclosing declaration omitted by symbol limit");
+        if (scope.uncertainTypeParameters) return fail("Type-parameter scopes require deeper analysis");
         if (scope.kind === "class" && skipClasses) { scope = scope.parent; continue; }
-        if (scope.restricted.has(job.name)) return { kind: "unresolved", reason: "Global or nonlocal binding requires deeper scope analysis" };
-        if (scope.wildcard) return { kind: "unresolved", reason: "Wildcard import makes this namespace ambiguous" };
-        const bindings = scope.bindings.get(job.name) || [];
+        if (scope.restricted.has(lookup)) return fail("Global or nonlocal binding requires deeper scope analysis");
+        if (scope.wildcard) return fail("Wildcard import makes this namespace ambiguous");
+        const bindings = scope.bindings.get(lookup) || [];
         if (bindings.length) {
-          if (bindings.length !== 1 || bindings[0].kind === "shadow" || bindings[0].conditional) return { kind: "unresolved", reason: "Name has shadowing, repeated or conditional bindings" };
+          if (bindings.length !== 1 || bindings[0].kind === "shadow" || bindings[0].conditional) return fail("Name has shadowing, repeated or conditional bindings");
           const binding = bindings[0];
+          if (job.attribute) return attributeTarget(job, binding, fail);
           if (binding.kind === "local") return { kind: "local", symbol: binding.symbol };
           if (binding.kind === "import") return { kind: "import", module: binding.import.module, name: binding.import.name, alias: binding.import.alias };
-          return { kind: "unresolved", reason: "Imported module is not a directly declared callable" };
+          return fail("Imported module is not a directly declared callable");
         }
         if (scope.kind === "function" || scope.kind === "class") skipClasses = true;
         scope = scope.parent;
       }
-      return { kind: "unresolved", reason: "No unique declaration or explicit from-import binding in source" };
+      return fail("No unique declaration or explicit from-import binding in source");
     }
     for (const { scope, uncertainScope, ...job } of callJobs) calls.push({ ...job, resolution: resolve({ ...job, scope, uncertainScope }) });
     const callableExports = Object.create(null);
     if (!moduleScope.wildcard) for (const [name, bindings] of moduleScope.bindings) if (!moduleScope.restricted.has(name) && bindings.length === 1 && bindings[0].kind === "local" && !bindings[0].conditional) callableExports[name] = bindings[0].symbol;
-    return { symbols, calls, imports, callableExports, limitations: [...LIMITATIONS], truncated };
+    // Names the module itself binds. `from pkg import child` loads pkg/child.py
+    // only when `child` is not already an attribute of the imported package, so
+    // a resolver needs this list to avoid inventing a submodule relationship.
+    // https://docs.python.org/3/reference/import.html#submodules
+    const moduleBindings = [...moduleScope.bindings.keys()].filter(name => !moduleScope.restricted.has(name));
+    // A wildcard import, exec/eval or a truncated scan means unlisted names may
+    // also be bound, so no absence conclusion may be drawn from the list.
+    const moduleBindingsDynamic = Boolean(moduleScope.wildcard || truncated
+      || calls.some(call => call.owner == null && ["exec", "eval", "globals", "locals"].includes(call.name)));
+    return { symbols, calls, imports, callableExports, moduleBindings, moduleBindingsDynamic, limitations: [...LIMITATIONS], truncated };
   }
   root.SkylensePythonStructure = Object.freeze({ analyze });
 })(typeof globalThis !== "undefined" ? globalThis : window);

@@ -79,6 +79,16 @@
     return (hash >>> 0) / 4294967296;
   }
 
+  /** Where a marker with phase `phase` (keyPhase of its path key) stands after `elapsedMs` at
+   *  `speed` px/s: the travel the live controller draws, so an exported frame matches the canvas. */
+  function particleAt(path, phase, elapsedMs, speed = 70) {
+    if (!path?.points?.length) return null;
+    const distance = path.length
+      ? (phase * path.length + (Math.max(0, elapsedMs) * speed) / 1000) % path.length
+      : 0;
+    return samplePath(path, distance);
+  }
+
   function createController(options = {}) {
     const requestFrame =
       options.requestFrame || root.requestAnimationFrame?.bind(root);
@@ -135,11 +145,7 @@
       );
     }
     function draw(entry) {
-      const distance = entry.path.length
-        ? (entry.phase * entry.path.length + (elapsed * speed) / 1000) %
-          entry.path.length
-        : 0;
-      const point = samplePath(entry.path, distance);
+      const point = particleAt(entry.path, entry.phase, elapsed, speed);
       if (!point) return;
       // A root-owned trail drawn to the left of the core rotates behind travel.
       entry.element.setAttribute(
@@ -287,6 +293,8 @@
   root.CodeLoomMotion = Object.freeze({
     measurePath,
     samplePath,
+    keyPhase,
+    particleAt,
     createController,
   });
 })(typeof window !== "undefined" ? window : globalThis);

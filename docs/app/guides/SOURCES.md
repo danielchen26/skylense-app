@@ -2,6 +2,18 @@
 
 Skylense 0.4 indexes selected files, local folders, public GitHub repositories and public webpages for the **same complete visual workbench**. Full indexing is the default: eligible files and supported source declarations are retained rather than taking the first 300 files. No API key is required. Analyzed programs and webpage scripts are never executed.
 
+Automatic analysis does **not** make every repository or folder match the curated Demo. The workbench is shared; the depth of automatic understanding is not.
+
+| Capability | Current status |
+| --- | --- |
+| Hierarchy, animated orthogonal edges, node/edge details, upstream/downstream, global location, waypoint paths, themes and export | Shared complete interface |
+| Automatic folders, files, declarations and code relationships | Implemented; parse depth differs by language |
+| Function `inputs` / `outputs` | Copied from source signatures and return annotations when present. `sourceContract` records `complete`, `unannotated`, `unsupported`, or `partial`. `unsupported` is a parser gap, not a claim that the source has no annotation |
+| Demo business-module boundaries, role explanations and end-to-end scenarios | Not all generated automatically; examples include authored content |
+| Any language, any scale, complete runtime relationships | Not guaranteed; unresolved content and resource ceilings are reported |
+
+Twenty-four syntax grammars are not twenty-four complete semantic analyzers. Source-backed notes come from declarations, signatures and docstrings. They are not invented product roles.
+
 ## In your browser
 
 Choose **打开来源 / Open source**. Select a folder or files, enter a URL, or paste text/HTML. Review collection coverage, parser diagnostics and relationship provenance, then enter the map. Canceling or a failed analysis keeps the previous map. Export model JSON if you want a portable snapshot.
@@ -17,18 +29,19 @@ Remote requests have timeouts and cancellation. An incomplete GitHub tree, unrea
 Install the downloaded toolkit with Node.js 22+:
 
 ```sh
-npm install --global ./skylense-0.4.2.tgz
+npm install --global ./skylense-0.5.0.tgz
 skylense open /path/to/project
 skylense open https://github.com/danielchen26/Gflownet
 skylense open https://example.com
 skylense analyze /path/to/project --output architecture.json
-skylense tui custom --model architecture.json
+skylense tui architecture.json
 skylense open architecture.json
+skylense bundle architecture.json --output architecture.html
 ```
 
 `open` starts the complete packaged Web app on a random loopback port. Its token is delivered in the URL fragment, removed from the visible URL and retained in the local tab session. Keep the process running; Ctrl-C stops it. It serves the packaged app, never the source directory. Use `--no-browser --json` for a script. `skylense serve` opens an empty local workbench whose URL reader can work without browser CORS restrictions.
 
-Existing validated Skylense JSON preserves authored hierarchy, contracts, scenarios and evidence. Output files are created exclusively; `--force` replaces an existing regular file explicitly.
+Existing validated Skylense JSON preserves authored hierarchy, contracts, scenarios and evidence. Output files are created exclusively; `--force` replaces an existing regular file explicitly. `bundle` writes one HTML file holding the workbench and the gzip-compressed model; it opens from disk in a current browser (it needs `DecompressionStream`), passes the model through the same admission gate as a browser import, and does not carry the in-browser source analyzer.
 
 For an intentionally smaller, partial map, opt into a file limit:
 
@@ -44,6 +57,7 @@ This is **preview mode**, not the default. Source files are prioritized before d
 | --- | --- |
 | Collection | Actual folders/files and file types; text previews or explicit binary metadata; public GitHub commit links |
 | Syntax | 24 bundled Tree-sitter grammars, covering Python, JavaScript/TypeScript/TSX, Julia, Go, Rust, Java, C/C++, C#, Ruby, PHP, Swift, Kotlin, Scala, Lua, shell, HTML, CSS, Vue and structured configuration formats; supported declarations retain source spans and nesting |
+| Function contracts | Parameter lists and return annotations copied from the declaration signature; missing annotations stay empty and are not inferred from names or return statements |
 | Local dependencies | Source-backed imports, includes, resources and links; project-aware resolution uses included manifests and unambiguous local targets |
 | JavaScript / TypeScript calls | The TypeScript checker resolves supported calls to included declarations; these are static bindings, not observations of runtime dispatch |
 | Julia calls | Static module/include/import bindings identify candidate method sets; multiple-dispatch candidates remain distinct from resolved calls, with a shared call-site identity |
@@ -61,13 +75,15 @@ Full indexing separates source parsing from preview length. Files and supported 
 
 Finite resource ceilings protect the process: **100,000 files, 64 MiB per text file, 256 MiB total source text and 128 MiB serialized model**. Graph entity and traversal safety ceilings also apply. Exceeding a full-index ceiling produces an explicit failure; choose a narrower source or intentionally request preview mode. Known binary weights are metadata-only and are not read as giant text files. These ceilings do not imply that every device can render the largest possible model equally quickly.
 
-Known generated directories, version-control data and common secret filenames are excluded. GitHub, browser-folder and CLI collection apply the same root `.gitignore` and `.skylenseignore` rules; nested ignore files are not interpreted. Symlinks are not followed. Browser file pickers cannot supply empty directories; local scans can retain them.
+Known generated directories, version-control data and common secret filenames are excluded. GitHub, browser-folder and CLI collection apply `.gitignore` and `.skylenseignore` from the root and from nested directories; each nested file only affects paths under that directory. Negation cannot re-include a path whose ancestor directory remains excluded. Symlinks are not followed. Browser file pickers cannot supply empty directories; local scans can retain them.
 
 CLI public requests reject private/reserved network destinations and nonstandard ports. Direct browser requests block known local address literals, while browser DNS and CORS behavior still apply.
 
 ## Same workbench, every source
 
 Hierarchy, same-level focus, category boundaries, orthogonal animated relationships, node/edge inspectors, source previews, upstream/downstream/global context, ordered-waypoint routes, comparison, saved views, themes, JSON/SVG export and presentation all consume the same model. Features have the same controls for imported and curated maps; the available relationships and scenarios reflect the evidence in each model.
+
+**Export → 动画 GIF / 动画视频** turns the flow, source guide or agent-authored scenario being read into an animation: every step shows its camera, highlighted objects and caption as the workbench shows them, including step reasons and the 未证实调用 / 叙述衔接 markers of an authored scenario. A guide or flow step over an unproven candidate relation is marked 未证实调用 too. Shown candidate relations are drawn amber and dashed and counted in a footnote; candidates the view hides are named there. Frames are drawn from the map's own layout at 880×560, 2.5 s per step: a looping GIF at 10 fps (encoded in the browser, about 380 KB for six steps) or a 30 fps WebM (MP4 where the browser records it), recorded in real time. Keep the page in the foreground while a video records: a page sent to the background, frames falling behind schedule, or a recorder error stop the export with what was recorded, and nothing is downloaded. The dialog shows progress and can cancel. Open a scenario or guide first; without one the entries are disabled.
 
 ### Read the tree and source guides together
 
