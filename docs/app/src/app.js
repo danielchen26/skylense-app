@@ -327,7 +327,7 @@
     return data.analysis;
   }
   function recomputeReadiness() {
-    if (Claims() && isRecord(data.analysis)) data.analysis.readiness = Claims().readinessOf(data, data.analysis);
+    if (Claims() && isRecord(data.analysis)) data.analysis.readiness = Claims().readinessOf(factsModel(), data.analysis);
   }
   function restoreStoredReviews() {
     if (!Claims() || !isRecord(data.analysis)) return;
@@ -984,7 +984,7 @@
   function authoringProblem(a, model) {
     if (!isRecord(a)) return "meta.authoring 不是对象";
     const optional = (value, test) => value === undefined || value === null || test(value);
-    for (const key of ["brief", "coverage", "verdicts", "gradeVocabulary", "regionPlan", "host", "accepted"])
+    for (const key of ["brief", "coverage", "verdicts", "gradeVocabulary", "regionPlan", "scope", "host", "accepted"])
       if (!optional(a[key], isRecord)) return `meta.authoring.${key} 不是对象`;
     for (const key of ["regions", "startHere", "entrypoints", "rejected", "objects", "regionRelations", "scenarios"])
       if (!optional(a[key], Array.isArray)) return `meta.authoring.${key} 不是数组`;
@@ -995,6 +995,7 @@
       if (!optional(a.coverage?.[key], isRecord)) return `meta.authoring.coverage.${key} 不是对象`;
     if (!optional(a.coverage?.skipped, Array.isArray)) return "meta.authoring.coverage.skipped 不是数组";
     if (!optional(a.regionPlan?.dissolved, Array.isArray)) return "meta.authoring.regionPlan.dissolved 不是数组";
+    if (!optional(a.scope?.coreFiles, Array.isArray)) return "meta.authoring.scope.coreFiles 不是数组";
     // Every projected `interpretation` names the claim behind each field; without `fields`
     // (e.g. a model projected before fields existed) no field can be graded.
     for (const item of [model?.meta, ...listOf(model?.hierarchy), ...listOf(model?.nodes), ...listOf(model?.edges), ...listOf(model?.flows)])
@@ -1003,17 +1004,28 @@
     return null;
   }
   /**
-   * The model the workbench shows. A trusted (or absent) layer is shown as stored. An untrusted
+   * The model the workbench shows. A trusted layer written in Chinese is shown through a view
+   * whose derived parser text is in Chinese (src/derived-text.js); the stored text stays in the
+   * model and under each item's `derivedText`. An absent layer is shown as stored. An untrusted
    * one is shown through a copy holding only derived text: summary/description/evidenceNote
    * take their stored derived values, text that has none (region descriptions, interfaces,
-   * scenario descriptions and step reasons, the reading guide) is removed, and every
+   * scenario descriptions and step reasons, the reading guides) is removed, and every
    * `interpretation` is dropped. The stored model itself is kept for export.
    */
+  var localizedViews;
   function displayModel(model) {
     untrustedViews ||= new WeakMap();
-    if (untrustedViews.has(model) || model?.meta?.authoring === undefined || model.meta.authoring === null) return model;
+    localizedViews ||= new WeakMap();
+    if (untrustedViews.has(model) || localizedViews.has(model) || model?.meta?.authoring === undefined || model.meta.authoring === null) return model;
     const problem = authoringProblem(model.meta.authoring, model);
-    if (!problem) return model;
+    if (!problem) {
+      const localize = window.SkylenseDerivedText?.localizeModel;
+      const view = localize ? localize(model) : model;
+      if (view === model) return model;
+      if (Object.isFrozen(model)) Object.freeze(view);
+      localizedViews.set(view, model);
+      return view;
+    }
     const view = structuredClone(model);
     const revert = (item, field, derived) => {
       if (!Object.hasOwn(item, derived)) return;
@@ -1024,7 +1036,7 @@
     for (const item of [...recordsOf(view.hierarchy), ...recordsOf(view.nodes)]) {
       revert(item, "summary", "derivedSummary");
       revert(item, "description", "derivedDescription");
-      if (Object.hasOwn(item, "interpretation")) delete item.interface;
+      if (Object.hasOwn(item, "interpretation")) { delete item.interface; delete item.authoredInputs; delete item.authoredOutputs; }
       if (item.sourceRole === "authored-region") { regionIds.add(item.id); delete item.description; delete item.evidence; }
       delete item.interpretation;
     }
@@ -1041,13 +1053,25 @@
       revert(view.meta, "evidenceNote", "derivedEvidenceNote");
       delete view.meta.interpretation;
     }
-    view.documents = listOf(view.documents).filter((doc) => doc?.id !== "auth_overview");
+    view.documents = listOf(view.documents).filter((doc) => !isGuideId(doc?.id));
     untrustedViews.set(view, { problem, source: model });
     return view;
   }
-  /** The model as stored (what export writes), for the model currently shown. */
+  /** The model as stored (what export writes), for the model currently shown. A Chinese view
+   *  shares the stored analysis; a review that had to copy a frozen claim list is carried over. */
   function storedModel() {
+    const source = localizedViews?.get(data);
+    if (source) return source.analysis === data.analysis ? source : { ...source, analysis: data.analysis };
     return untrustedViews?.get(data)?.source || data;
+  }
+  /** The model whose texts capability and review checks read: the shown model, except that a
+   *  Chinese view of parser text is presentation only and never feeds a capability row. */
+  function factsModel() {
+    return localizedViews?.has(data) ? storedModel() : data;
+  }
+  /** Id of the agent reading guide of one scenario (docs/AUTHORING.md § Projection). */
+  function isGuideId(id) {
+    return typeof id === "string" && id.startsWith("auth_guide_");
   }
   /** Why this model's authored layer is not trusted, or null (no layer, or a well-formed one). */
   function authoringNotice() {
@@ -1078,6 +1102,23 @@
     if (!text) return "";
     const title = authoring() ? "名称由作者宿主拟定，不是解析得到的事实，也不经核验。" : "这部分由作者宿主划分或编排；它的解读层格式不正确，解读文字没有显示。";
     return `<span class="name-chip" title="${title}">${text}</span>`;
+  }
+  /** An authored short role label: an object's `roleLabel` or an edge's `authoredRelation.label`.
+   *  Like region and scenario names it is chosen by the author host, not a claim, never graded,
+   *  and shown only while the authored layer is trusted. */
+  function authoredLabelOf(item) {
+    if (!authoring()) return "";
+    return textOf(isRecord(item?.authoredRelation) ? item.authoredRelation.label : item?.roleLabel).trim();
+  }
+  function roleChip(item) {
+    const text = authoredLabelOf(item);
+    if (!text) return "";
+    const note = isRecord(item?.authoredRelation) ? textOf(item.authoredRelation.note).trim() : "";
+    return `<i class="role-label" title="作用标签由作者宿主拟定，不是解析得到的事实，也不经核验。">代理命名 · ${escape(text)}${note ? `<small>${escape(note)}</small>` : ""}</i>`;
+  }
+  /** A declaration's own docstring, kept aside by the Chinese view of parser text: quoted source. */
+  function sourceDocstringBlock(n) {
+    return textOf(n?.sourceDocstring) ? `<p class="derived-line"><span>源码文档字符串（原文）</span>${escape(n.sourceDocstring)}</p>` : "";
   }
   function orientationLanding() { return Boolean(data.meta?.landing === "orientation" && authoring()); }
   // A malformed layer degrades fully: its scenarios are read as ordinary flows.
@@ -1221,15 +1262,24 @@
   function authoredStatement(text, status, evidenceIds = [], derived = "", headline = "") {
     return `<div class="authored-statement">${headline ? `<p class="detail-text authored-summary">${escape(headline)}</p>` : ""}<p class="detail-text">${escape(text)}</p>${authoredMeta(status, evidenceIds)}${derived ? `<p class="derived-line"><span>解析得到</span>${escape(derived)}</p>` : ""}</div>`;
   }
-  /** The agent-written reading guide. Curated demos also use the `authored-reading-guide`
-   *  status for human guides, so the status alone never marks a document as agent output. */
+  /** An agent-written reading guide (one per scenario). Curated demos also use the
+   *  `authored-reading-guide` status for human guides, so the status alone never marks a
+   *  document as agent output. */
   function isAgentGuide(doc) {
-    return Boolean(authoring()) && doc?.id === "auth_overview";
+    return Boolean(authoring()) && isGuideId(doc?.id);
   }
-  /** Documents in reading order: the agent reading guide first, the rest as stored. */
+  /** Documents in reading order: the agent reading guides first, the rest as stored. */
   function orderedDocuments(docs = data.documents || []) {
-    const guide = docs.find(isAgentGuide);
-    return guide ? [guide, ...docs.filter((d) => d !== guide)] : docs;
+    return [...docs.filter(isAgentGuide), ...docs.filter((d) => !isAgentGuide(d))];
+  }
+  /** The reading guide of one authored scenario, or null. */
+  function scenarioGuide(flow) {
+    const id = textOf(flow?.guideId);
+    return id && isGuideId(id) ? (data.documents || []).find((d) => d.id === id && isAgentGuide(d)) || null : null;
+  }
+  function guideButton(flow) {
+    const guide = scenarioGuide(flow);
+    return guide ? `<button class="btn guide-link" data-action="document" data-id="${escape(guide.id)}">${icon("document")}阅读导览</button>` : "";
   }
   const RESOLUTION_LABELS = {
     "resolved-static": "静态已证实", "source-declared": "源码声明", candidate: "候选 · 未证实",
@@ -1274,7 +1324,7 @@
     const unproven = steps.filter(scenarioStepUnproven).length;
     const narrative = steps.filter(scenarioStepNarrative).length;
     const description = textOf(flow.description);
-    return `<details class="scenario-brief"${state.step === 0 ? " open" : ""}><summary>${icon("info")}场景说明${unproven ? `<b class="unproven-badge">${unproven} 步未证实调用</b>` : ""}${narrative ? `<b class="narrative-badge">${narrative} 步叙述衔接</b>` : ""}</summary>${description && claimRecord(descriptionClaim) ? authoredStatement(description, claimStatus(descriptionClaim), claimEvidence(descriptionClaim)) : '<p class="micro">这个场景没有保留说明文字。</p>'}</details>${scenarioStepBlock(flow)}`;
+    return `<details class="scenario-brief"${state.step === 0 ? " open" : ""}><summary>${icon("info")}场景说明${unproven ? `<b class="unproven-badge">${unproven} 步未证实调用</b>` : ""}${narrative ? `<b class="narrative-badge">${narrative} 步叙述衔接</b>` : ""}</summary>${description && claimRecord(descriptionClaim) ? authoredStatement(description, claimStatus(descriptionClaim), claimEvidence(descriptionClaim)) : '<p class="micro">这个场景没有保留说明文字。</p>'}${guideButton(flow)}</details>${scenarioStepBlock(flow)}`;
   }
   /** The scenario step being read: its reason, direction and the edge's IR resolution. */
   function scenarioStepBlock(flow) {
@@ -1289,7 +1339,7 @@
     const via = narrative
       ? `<p class="micro">从 ${escape(label(previous))} 到 ${escape(label(nodeId))} 的衔接只由引用的文字说明；代码里没有记录这两者之间的关系，图上也不画连接。</p>`
       : edge
-        ? `<button class="scenario-edge${unproven ? " is-unproven" : ""}" data-action="raw-edge" data-id="${escape(edge.id)}" style="${typeStyle(edge.type)}">${typeBadge(edge.type)}<span>${escape(label(edge.source))} <span class="inline-arrow">→</span> ${escape(label(edge.target))}</span>${icon("chevron")}</button><p class="micro">${direction === "反向" ? `沿这条关系逆向走到 ${escape(label(nodeId))}：箭头仍指向模型记录的方向。` : `沿这条关系的方向走到 ${escape(label(nodeId))}。`}</p>`
+        ? `<button class="scenario-edge${unproven ? " is-unproven" : ""}" data-action="raw-edge" data-id="${escape(edge.id)}" style="${typeStyle(edge.type)}">${typeBadge(edge.type)}<span>${escape(label(edge.source))} <span class="inline-arrow">→</span> ${escape(label(edge.target))}</span>${roleChip(edge)}${icon("chevron")}</button><p class="micro">${direction === "反向" ? `沿这条关系逆向走到 ${escape(label(nodeId))}：箭头仍指向模型记录的方向。` : `沿这条关系的方向走到 ${escape(label(nodeId))}。`}</p>`
         : index === 0 ? "" : '<p class="micro">这一步没有记录连接的关系。</p>';
     const status = scenarioStepStatus(step);
     const reason = textOf(step.reason) && status
@@ -1353,6 +1403,13 @@
     const inner = `<p class="coverage-note">${icon("info")}${escape(note)}</p><p class="coverage-ledger">${escape(ledger)}</p>${details.body}`;
     return compact ? `<details class="coverage-strip"><summary>${icon("info")}代理解读覆盖：${escape(note)}</summary>${inner}</details>` : inner;
   }
+  /** What the core selection leaves out, counted by the builder (not authored, never graded). */
+  function scopeNote(a) {
+    const scope = isRecord(a.scope) ? a.scope : null;
+    if (!scope || !Array.isArray(scope.coreFiles)) return "";
+    const outside = Number.isInteger(scope.outsideFiles) ? scope.outsideFiles : 0;
+    return `<p class="micro scope-note">核心选了 ${scope.coreFiles.length} 个文件${outside ? `；其余 ${outside} 个文件放在「核心之外」，仍计入覆盖，可展开查看` : ""}。这是代理的选择，并不完整。</p>`;
+  }
   /** The inspector's empty state for an authored model: the reading entry to the whole map. */
   function orientationPanel() {
     const a = authoring(), brief = isRecord(a.brief) ? a.brief : {};
@@ -1366,20 +1423,19 @@
     const regions = regionList.map((r) => {
       const key = textOf(r.key), description = `cl_auth_region_${key}`;
       return `<button class="region-button" data-action="scope" data-id="${escape(r.id)}" style="--tone:${safeColor(r.color, groupColor(all.get(r.id)))}"><span class="region-title"><i class="dot"></i><b>${escape(textOf(r.label) || label(r.id))}</b>${nameChip(all.get(r.id))}<small>${members(r.id).length} 个组件</small>${icon("arrow")}</span>${textOf(r.description) ? `<span class="region-description">${escape(r.description)}</span>` : ""}</button>${textOf(r.description) && claimRecord(description) ? authoredMeta(claimStatus(description), claimEvidence(description)) : ""}`;
-    }).join("");
+    }).join("") + scopeNote(a);
     const others = data.groups.filter((g) => !regionIds.has(g.id)).map((g) => `<button class="connection" data-action="scope" data-id="${escape(g.id)}"><i class="dot" style="--tone:${safeColor(g.color, groupColor(g))}"></i><span>${escape(g.label)}<small>不属于任何区域 · ${members(g.id).length} 个组件</small></span>${icon("arrow")}</button>`).join("");
     const startList = recordsOf(a.startHere).filter((s) => typeof s.nodeId === "string" && all.has(s.nodeId));
     const starts = startList.map((s) => `<div class="start-item"><button class="connection" data-action="authored-focus" data-id="${escape(s.nodeId)}" data-peek="${escape(s.nodeId)}">${icon(kindIcon(nodes.get(s.nodeId)))}<span>${escape(label(s.nodeId))}<small>${escape(all.get(s.nodeId).path || "")}</small></span>${icon("arrow")}</button>${textOf(s.reason) && claimRecord(s.claimId) ? authoredStatement(s.reason, claimStatus(s.claimId), claimEvidence(s.claimId)) : ""}</div>`).join("");
     const authoredFlows = (data.flows || []).filter(isAuthoredScenario);
-    const scenarios = authoredFlows.map((f) => `<button class="connection scenario-link" data-action="flow" data-id="${escape(f.id)}">${icon("flow")}<span>${escape(f.label || f.title || f.id)}${nameChip(f)}<small>${f.nodes.length} 步${textOf(f.description) ? ` · ${escape(f.description)}` : ""}</small></span>${scenarioStatus(f) ? interpretationBadge(scenarioStatus(f)) : ""}</button>`).join("");
-    const guide = (data.documents || []).find((d) => d.id === "auth_overview");
+    const scenarios = authoredFlows.map((f) => `<button class="connection scenario-link" data-action="flow" data-id="${escape(f.id)}">${icon("flow")}<span>${escape(f.label || f.title || f.id)}${nameChip(f)}<small>${f.nodes.length} 步${textOf(f.description) ? ` · ${escape(f.description)}` : ""}</small></span>${scenarioStatus(f) ? interpretationBadge(scenarioStatus(f)) : ""}</button>${guideButton(f)}`).join("");
     const purpose = graded(brief.purpose);
     // The title is authored only when orientation wrote it; otherwise it is the folder name.
     const authoredTitle = textOf(a.accepted?.orientation?.brief?.title);
     const title = textOf(brief.title) || data.meta?.title || "";
     const host = isRecord(a.host) ? a.host : {};
     const footer = `解读由 ${escape(textOf(host.authorIdentity) || "作者宿主")} 撰写${anyVerdict() && textOf(host.verifierIdentity) ? `，由 ${escape(host.verifierIdentity)} 独立核验` : "，没有经过独立核验"}；没有经过人工审阅。解析得到的结构与关系不受解读影响。`;
-    return `<div class="inspector-top"><div class="eyebrow">阅读导引 · 代理解读</div></div><div class="inspector-content orientation-panel"><h2 class="empty-title">${escape(title)}</h2>${authoredTitle && authoredTitle === title ? '<span class="name-chip" title="项目标题由作者宿主拟定，不是解析得到的事实，也不经核验。">代理命名</span>' : ""}${orientationAuthored() ? "" : '<p class="micro">这次没有产出区域或项目简介：下面只列出解析得到的结构。</p>'}${purpose}${coverageSummary(a)}${section("能做什么", statements(brief.capabilities), recordsOf(brief.capabilities).length)}${section("输入", statements(brief.inputs), recordsOf(brief.inputs).length)}${section("输出", statements(brief.outputs), recordsOf(brief.outputs).length)}${section("边界", statements(brief.boundary), recordsOf(brief.boundary).length)}${textOf(brief.audience) && authoredTitle ? section("适合谁读", `<div class="authored-statement"><p class="detail-text">${escape(brief.audience)}</p>${authoredMeta(null)}</div>`) : ""}${section("系统区域", regions + others, regionList.length)}${section("从这里开始", starts, startList.length)}${section("场景", scenarios, authoredFlows.length)}<div class="orientation-actions">${guide ? `<button class="btn" data-action="document" data-id="auth_overview">${icon("document")}${escape(guide.title)}</button>` : ""}<button class="btn" data-action="legend">${icon("info")}颜色与形状图例</button></div><p class="micro">${footer}</p></div>`;
+    return `<div class="inspector-top"><div class="eyebrow">阅读导引 · 代理解读</div></div><div class="inspector-content orientation-panel"><h2 class="empty-title">${escape(title)}</h2>${authoredTitle && authoredTitle === title ? '<span class="name-chip" title="项目标题由作者宿主拟定，不是解析得到的事实，也不经核验。">代理命名</span>' : ""}${orientationAuthored() ? "" : '<p class="micro">这次没有产出区域或项目简介：下面只列出解析得到的结构。</p>'}${purpose}${coverageSummary(a)}${section("能做什么", statements(brief.capabilities), recordsOf(brief.capabilities).length)}${section("输入", statements(brief.inputs), recordsOf(brief.inputs).length)}${section("输出", statements(brief.outputs), recordsOf(brief.outputs).length)}${section("边界", statements(brief.boundary), recordsOf(brief.boundary).length)}${textOf(brief.audience) && authoredTitle ? section("适合谁读", `<div class="authored-statement"><p class="detail-text">${escape(brief.audience)}</p>${authoredMeta(null)}</div>`) : ""}${section("系统区域", regions + others, regionList.length)}${section("从这里开始", starts, startList.length)}${section("场景", scenarios, authoredFlows.length)}<div class="orientation-actions"><button class="btn" data-action="legend">${icon("info")}颜色与形状图例</button></div><p class="micro">${footer}</p></div>`;
   }
   /**
    * The evidence viewer: the real excerpt, its span and its source, plus a way into the
@@ -1452,7 +1508,7 @@
       return `<div class="detail-intro"><b>源码签名契约</b><p>已支持的声明形式保留源码参数与显式返回类型；缺少注解、当前不支持和部分提取分别记录。签名描述不是业务职责或运行时契约证明。</p></div>${ioBlock(n.sourceContract, n.inputs, n.outputs, false)}${evidenceBody(n)}`;
     }
     const curated = !generated();
-    return `<div class="detail-intro"><b>${n.functions?.length || 0} 个${generated() ? "符号 / 章节" : "函数 / 接口"}</b><p>${escape(data.meta?.functionNote || (generated() ? "自动分析对已支持的声明形式提取源码参数、显式返回类型及可识别的文档字符串。结果分别记录缺少注解、部分提取和不支持的情况。它们是源码签名事实，不等同于精选 Demo 中人工整理的职责、业务契约和端到端场景。" : "按职责、输入、输出阅读接口摘要。"))}</p></div>${(n.functions || []).map((f, i) => `<details class="function" ${i === 0 ? "open" : ""}><summary>${escape(f.qualifiedName || f.name)}</summary><div class="function-body">${escape(f.description || f.desc || "")}${f.nodeId && all.has(f.nodeId) ? `<button class="connection" data-action="select" data-id="${escape(f.nodeId)}">${icon("code")}<span>定位符号与关系</span>${icon("arrow")}</button>` : ""}${ioBlock(f.sourceContract, f.inputs, f.outputs, curated)}${(f.evidence || []).map(e => `<details class="evidence-card" open><summary>${escape(e.file)} · ${e.lineStart}–${e.lineEnd}${e.excerptTruncated ? " · 摘录截断" : ""}</summary>${evidenceLink(e)}<pre>${escape(e.excerpt)}</pre></details>`).join("")}</div></details>`).join("") || '<p class="empty-hint">暂无函数契约。</p>'}`;
+    return `<div class="detail-intro"><b>${n.functions?.length || 0} 个${generated() ? "符号 / 章节" : "函数 / 接口"}</b><p>${escape(data.meta?.functionNote || (generated() ? "自动分析对已支持的声明形式提取源码参数、显式返回类型及可识别的文档字符串。结果分别记录缺少注解、部分提取和不支持的情况。它们是源码签名事实，不等同于精选 Demo 中人工整理的职责、业务契约和端到端场景。" : "按职责、输入、输出阅读接口摘要。"))}</p></div>${(n.functions || []).map((f, i) => `<details class="function" ${i === 0 ? "open" : ""}><summary>${escape(f.qualifiedName || f.name)}</summary><div class="function-body">${escape(f.description || f.desc || "")}${f.nodeId && all.has(f.nodeId) ? `<button class="connection" data-action="select" data-id="${escape(f.nodeId)}">${icon("code")}<span>定位符号与关系</span>${icon("arrow")}</button>` : ""}${ioBlock(f.sourceContract || all.get(f.nodeId)?.sourceContract, f.inputs, f.outputs, curated)}${(f.evidence || []).map(e => `<details class="evidence-card" open><summary>${escape(e.file)} · ${e.lineStart}–${e.lineEnd}${e.excerptTruncated ? " · 摘录截断" : ""}</summary>${evidenceLink(e)}<pre>${escape(e.excerpt)}</pre></details>`).join("")}</div></details>`).join("") || '<p class="empty-hint">暂无函数契约。</p>'}`;
   }
   function renderLegend() {
     const counts = new Map();
@@ -1904,7 +1960,7 @@
    */
   function landOnGuide() {
     const f = landingGuide();
-    if (!f) return false;
+    if (!f) return landOnCore();
     const origin = JSON.parse(JSON.stringify(snapshotState()));
     delete origin.camera;
     delete origin.lastRelation;
@@ -1919,10 +1975,34 @@
     focusReadingNode();
     return true;
   }
+  /**
+   * An authored model opens inside its conceptual core: the region holding the focus the
+   * builder recorded (meta.defaultScope / defaultFocus / defaultOpen, checked by
+   * verify-authored-model), with that node selected and its containers open. A model whose
+   * authored layer is not shown, or whose fields name nothing here, keeps the system view.
+   */
+  function landOnCore() {
+    if (!orientationLanding()) return false;
+    const scope = data.meta?.defaultScope, focus = data.meta?.defaultFocus;
+    if (!containers.has(scope) || !all.has(focus)) return false;
+    Object.assign(state, {
+      scope, selected: focus, mode: "hierarchy", lens: "scope", flow: null, trace: null, step: 0,
+      relation: null, relationGroup: null, tab: "overview",
+      openContainers: listOf(data.meta.defaultOpen).filter((id) => containers.has(id)),
+    });
+    render();
+    focusReadingNode();
+    return true;
+  }
   function renderGuideNavigation() {
     const scenarios = (data.flows || []).filter(isAuthoredScenario);
     if (!scenarios.length) return sourceGuideNavigation(data.flows || []);
-    return scenarioNavigation(scenarios) + sourceGuideNavigation(data.flows.filter((f) => !isAuthoredScenario(f)));
+    const automatic = data.flows.filter((f) => !isAuthoredScenario(f));
+    if (!automatic.length) return scenarioNavigation(scenarios);
+    // Automatic guides never sit next to authored scenarios as equals: folded, and titled as
+    // parser output, unless the reader is inside one of them.
+    const open = automatic.some((f) => f.id === state.flow && state.mode === "flow");
+    return scenarioNavigation(scenarios) + `<details class="automatic-guides"${open ? " open" : ""}><summary>${icon("layers")}自动导览 · 解析生成，不是代理场景<span>${automatic.length}</span></summary>${sourceGuideNavigation(automatic)}</details>`;
   }
   /** Authored task scenarios, listed ahead of the generated source guides. */
   function scenarioNavigation(scenarios) {
@@ -2299,7 +2379,7 @@
           chosen =
             state.relation &&
             r.edgeIds.some((id) => state.relation.edgeIds.includes(id));
-        return `<button class="relation-hub shape-${shape.key} ${relationActive(r, focus) ? "active" : ""} ${chosen ? "selected" : ""}" style="left:${h.x}px;top:${h.y}px;width:${h.w}px;height:${h.h}px;${typeStyle(r.type)}" data-action="relation" data-id="${escape(r.id)}" data-relation-peek="${escape(r.id)}" aria-label="关系标注 ${escape(relationTitle(r))}，${escape(t.shortLabel)}，${shape.cardinality}，${r.edgeIds.length} 条边" title="${escape(shape.label)} · ${escape(t.label)} · ${escape(actionLabels(r.edges).join(" / "))}"><span class="hub-glyph">${icon(shape.icon)}</span><span class="hub-copy"><strong>${escape(relationTitle(r))}</strong></span>${r.edgeIds.length > 1 ? `<b class="member-count">${r.edgeIds.length}</b>` : ""}</button>`;
+        return `<button class="relation-hub shape-${shape.key} ${relationActive(r, focus) ? "active" : ""} ${chosen ? "selected" : ""}" style="left:${h.x}px;top:${h.y}px;width:${h.w}px;height:${h.h}px;${typeStyle(r.type)}" data-action="relation" data-id="${escape(r.id)}" data-relation-peek="${escape(r.id)}" aria-label="关系标注 ${escape(relationTitle(r))}，${escape(t.shortLabel)}，${shape.cardinality}，${r.edgeIds.length} 条边" title="${escape(shape.label)} · ${escape(t.label)} · ${escape(actionLabels(r.edges).join(" / "))}"><span class="hub-glyph">${icon(shape.icon)}</span><span class="hub-copy"><strong>${escape(relationTitle(r))}</strong>${(() => { const roles = [...new Set(r.edges.map(authoredLabelOf).filter(Boolean))]; return roles.length === 1 ? `<small class="hub-role" title="作用标签由作者宿主拟定，不是解析得到的事实，也不经核验。">代理命名 · ${escape(roles[0])}</small>` : ""; })()}</span>${r.edgeIds.length > 1 ? `<b class="member-count">${r.edgeIds.length}</b>` : ""}</button>`;
       })
       .join("");
     const nodeHTML = layout.items
@@ -2315,7 +2395,7 @@
         // A container card shows only its name (never graded: a name is not a claim); an object
         // card shows its one-line text, graded by that field's own claim.
         const markStatus = isContainer ? null : fieldGrade(n, shownTextField(n));
-        return `<div class="node-wrap kind-${t.key} ${isContainer ? "is-boundary" : ""}" style="left:${p.x}px;top:${p.y}px;width:${p.w}px;height:${p.h}px;--tone:${groupColor(n)};--ink:${semanticInk(t)}"><button class="graph-node ${selected ? "selected" : ""}" style="width:${p.w}px;height:${p.h}px" data-action="select" data-id="${escape(n.id)}" data-peek="${escape(n.id)}" aria-label="${escape(n.label)}${isContainer ? "，双击或按右方向键展开" : ""}"><span class="node-top"><span class="node-icon">${icon(t.icon)}</span><span><span class="node-label">${escape(n.label)}</span><span class="node-kind">${escape(t.label)} · L${CodeLoomLevels.depth(data, n.id)}${markStatus ? `<i class="interpretation-mark" data-status="${markStatus}" title="卡片上的说明文字是代理解读 · ${INTERPRETATION_GRADES[markStatus]}">代理解读</i>` : ""}${nameChip(n)}${splitFileOf(n) ? `<i class="split-file-mark" title="${escape(`所在文件 ${n.path} 已按职责拆分到多个区域；这里没有文件边界`)}">${escape(n.path.split("/").at(-1))}</i>` : ""}</span></span></span><span class="node-description">${isContainer ? `${kids.length} 个直接子项 · ${memberIds.length} 个组件` : escape(n.summary || n.description || "")}</span>${
+        return `<div class="node-wrap kind-${t.key} ${isContainer ? "is-boundary" : ""}" style="left:${p.x}px;top:${p.y}px;width:${p.w}px;height:${p.h}px;--tone:${groupColor(n)};--ink:${semanticInk(t)}"><button class="graph-node ${selected ? "selected" : ""}" style="width:${p.w}px;height:${p.h}px" data-action="select" data-id="${escape(n.id)}" data-peek="${escape(n.id)}" aria-label="${escape(n.label)}${isContainer ? "，双击或按右方向键展开" : ""}"><span class="node-top"><span class="node-icon">${icon(t.icon)}</span><span><span class="node-label">${escape(n.label)}</span><span class="node-kind">${escape(t.label)} · L${CodeLoomLevels.depth(data, n.id)}${markStatus ? `<i class="interpretation-mark" data-status="${markStatus}" title="卡片上的说明文字是代理解读 · ${INTERPRETATION_GRADES[markStatus]}">代理解读</i>` : ""}${nameChip(n)}${roleChip(n)}${splitFileOf(n) ? `<i class="split-file-mark" title="${escape(`所在文件 ${n.path} 已按职责拆分到多个区域；这里没有文件边界`)}">${escape(n.path.split("/").at(-1))}</i>` : ""}</span></span></span><span class="node-description">${isContainer ? `${kids.length} 个直接子项 · ${memberIds.length} 个组件` : escape(n.summary || n.description || "")}</span>${
           isContainer
             ? `<span class="child-preview">${kids
                 .slice(0, 2)
@@ -2721,11 +2801,11 @@
     const text = reasonClaim && claimRecord(reasonClaim) && textOf(e.description)
       ? authoredStatement(e.description, claimStatus(reasonClaim), claimEvidence(reasonClaim), textOf(e.derivedDescription))
       : e.description ? `<p>${escape(e.description)}</p>` : "";
-    return `<div class="edge-evidence-note"><span class="badge">${escape(kinds[e.evidenceStatus] || e.evidenceStatus || "作者整理")}</span>${text}</div>`;
+    return `<div class="edge-evidence-note"><span class="badge">${escape(kinds[e.evidenceStatus] || e.evidenceStatus || "作者整理")}</span>${roleChip(e)}${text}</div>`;
   }
   function rawEdgeCard(e) {
     if (!e) return "";
-    return `<button class="relation-member" data-action="raw-edge" data-id="${escape(e.id)}" style="${typeStyle(e.type)}"><small>${escape(e.id)} ${typeBadge(e.type)}</small><b>${escape(label(e.source))} <span class="inline-arrow">→</span> ${escape(label(e.target))}</b><span>${escape(e.label || e.type)}</span>${icon("chevron")}</button>`;
+    return `<button class="relation-member" data-action="raw-edge" data-id="${escape(e.id)}" style="${typeStyle(e.type)}"><small>${escape(e.id)} ${typeBadge(e.type)}</small><b>${escape(label(e.source))} <span class="inline-arrow">→</span> ${escape(label(e.target))}</b><span>${escape(e.label || e.type)}</span>${roleChip(e)}${icon("chevron")}</button>`;
   }
   const ROLE_LABELS = {
     input: "输入 / input", validator: "校验 / validator", artifact: "产物 / artifact",
@@ -2903,7 +2983,7 @@
   }
   function connection(e, incoming) {
     const id = incoming ? e.source : e.target;
-    return `<div class="connection-row" style="${typeStyle(e.type)}"><button class="connection" data-action="select" data-id="${escape(id)}" data-peek="${escape(id)}">${icon(kindIcon(nodes.get(id)))}<span>${escape(label(id))}<small>${escape(e.label || e.type)}</small></span>${icon("arrow")}</button><button class="edge-detail-button" data-action="raw-edge" data-id="${escape(e.id)}" aria-label="查看边 ${escape(e.id)}">${typeBadge(e.type)}<span>${escape(e.id)} ${icon("chevron")}</span></button></div>`;
+    return `<div class="connection-row" style="${typeStyle(e.type)}"><button class="connection" data-action="select" data-id="${escape(id)}" data-peek="${escape(id)}">${icon(kindIcon(nodes.get(id)))}<span>${escape(label(id))}<small>${escape(e.label || e.type)}</small>${roleChip(e)}</span>${icon("arrow")}</button><button class="edge-detail-button" data-action="raw-edge" data-id="${escape(e.id)}" aria-label="查看边 ${escape(e.id)}">${typeBadge(e.type)}<span>${escape(e.id)} ${icon("chevron")}</span></button></div>`;
   }
   function nodeHierarchy(n) {
     return `${evidenceOrigin?.model === data ? `<button class="return-relation" data-action="evidence-return">${icon("back")}返回依据前的位置</button>` : ""}${state.lastRelation ? `<button class="return-relation" data-action="return-relation">${icon("back")}返回刚才的关系 (${state.lastRelation.edgeIds.length})</button>` : ""}<div class="inspector-breadcrumbs"><button data-action="home">System</button>${crumbIds(
@@ -2970,7 +3050,7 @@
     return `<div class="review-block">${record}${rows ? `<ul class="review-history">${rows}</ul>` : ""}${actions}</div>`;
   }
   /** Per-dimension review requirement from evaluateDepth: what a person still has to check. */
-  function reviewStatus(model = data) {
+  function reviewStatus(model = factsModel()) {
     if (!Claims() || !isRecord(model?.analysis)) return null;
     try { return Claims().evaluateDepth(model); } catch { return null; }
   }
@@ -3039,7 +3119,7 @@
     }
     const edges = [...inc.incoming, ...inc.outgoing],
       ctx = selectionContext();
-    return `<div data-section="identity"><div class="object-tags">${categoryBadge(n)}<span class="badge">${isContainer ? `${members(n.id).length} 个组件` : n.sourceRole === "symbol" ? "源码声明" : `${n.functions?.length || 0} 个${generated() ? "符号" : "函数"}`}</span></div></div><div data-section="responsibility"><div class="section-label">职责 / RESPONSIBILITY</div>${interp(n) ? authoredResponsibility(n) : `<p class="detail-text">${escape(n.description || n.summary || "未提供职责说明。")}</p>`}</div><div data-section="interface"><div class="section-label" style="margin-top:20px">${isContainer ? "结构入口" : "接口与位置"}</div><button class="connection" data-action="tab" data-value="contracts">${icon(isContainer ? "layers" : "code")}<span>${isContainer ? `查看 ${immediateChildren(n.id).length} 个直接子项` : n.sourceRole === "symbol" ? "查看声明与源码依据" : `查看 ${n.functions?.length || 0} 个${generated() ? "声明 / 章节" : "函数契约"}`}<small>${isContainer ? "继续逐层深入" : generated() ? "精确行号、源文件与静态关系" : "职责、输入、输出分别呈现"}</small></span>${icon("arrow")}</button></div><div data-section="relations"><div class="section-label">连接构成 <span>${edges.length} 条原始边 · 全类型</span></div>${typeBreakdown(edges)}</div><div data-section="position">${contextSummary(ctx)}${n.path ? `<details class="location-details"><summary>${icon("document")}源码位置</summary><code>${escape(n.path)}</code></details>` : ""}${n.parentId || n.group ? `<button class="btn parent-button" data-action="scope" data-id="${escape(n.parentId || n.group)}">${icon("layers")}进入父模块 ${escape(label(n.parentId || n.group))}</button>` : ""}</div><div data-section="evidence">${sourceDiagnostics(n)}</div>`;
+    return `<div data-section="identity"><div class="object-tags">${categoryBadge(n)}<span class="badge">${isContainer ? `${members(n.id).length} 个组件` : n.sourceRole === "symbol" ? "源码声明" : `${n.functions?.length || 0} 个${generated() ? "符号" : "函数"}`}</span></div></div><div data-section="responsibility"><div class="section-label">职责 / RESPONSIBILITY</div>${roleChip(n)}${interp(n) ? authoredResponsibility(n) : `<p class="detail-text">${escape(n.description || n.summary || "未提供职责说明。")}</p>`}${sourceDocstringBlock(n)}</div><div data-section="interface"><div class="section-label" style="margin-top:20px">${isContainer ? "结构入口" : "接口与位置"}</div><button class="connection" data-action="tab" data-value="contracts">${icon(isContainer ? "layers" : "code")}<span>${isContainer ? `查看 ${immediateChildren(n.id).length} 个直接子项` : n.sourceRole === "symbol" ? "查看声明与源码依据" : `查看 ${n.functions?.length || 0} 个${generated() ? "声明 / 章节" : "函数契约"}`}<small>${isContainer ? "继续逐层深入" : generated() ? "精确行号、源文件与静态关系" : "职责、输入、输出分别呈现"}</small></span>${icon("arrow")}</button></div><div data-section="relations"><div class="section-label">连接构成 <span>${edges.length} 条原始边 · 全类型</span></div>${typeBreakdown(edges)}</div><div data-section="position">${contextSummary(ctx)}${n.path ? `<details class="location-details"><summary>${icon("document")}源码位置</summary><code>${escape(n.path)}</code></details>` : ""}${n.parentId || n.group ? `<button class="btn parent-button" data-action="scope" data-id="${escape(n.parentId || n.group)}">${icon("layers")}进入父模块 ${escape(label(n.parentId || n.group))}</button>` : ""}</div><div data-section="evidence">${sourceDiagnostics(n)}</div>`;
   }
   /**
    * The projected role of an object or region, field by field. Each field shows its own claim's
@@ -3063,6 +3143,13 @@
     }
     if (iface && textOf(n.interface))
       parts.push(`<div class="section-label" style="margin-top:16px">接口含义 / INTERFACE</div>${authoredStatement(n.interface, iface.status, iface.evidence)}`);
+    // Authored inputs/outputs: agent interpretation read from the interface claim, graded by
+    // it; the parser's parameters and returns stay in the contracts tab (源码签名契约).
+    const authoredIo = [["authoredInputs", "输入"], ["authoredOutputs", "输出"]]
+      .map(([name, label]) => ({ label, grade: field(name), items: (Array.isArray(n[name]) ? n[name] : []).filter((item) => textOf(item)) }))
+      .filter((entry) => entry.grade && entry.items.length);
+    if (authoredIo.length)
+      parts.push(`<div class="section-label" style="margin-top:16px">代理整理的输入输出 / AUTHORED IO</div>${authoredIo.map((entry) => authoredStatement(`${entry.label}：${entry.items.join("；")}`, entry.grade.status, entry.grade.evidence)).join("")}`);
     const region = recordsOf(authoring()?.regions).find((r) => r.id === n.id);
     const rationale = region && textOf(region.key) ? `cl_auth_region_${region.key}_members` : null;
     if (rationale && textOf(region.rationale) && claimRecord(rationale))
@@ -3736,6 +3823,8 @@
             ...(edge || step.edgeId ? [{ text: ownValue(RESOLUTION_LABELS, resolution) || resolution || "分析记录中没有这条关系", tone: unproven ? "candidate" : "proven" }] : []),
             ...(unproven ? [{ text: "未证实调用", tone: "unproven" }] : []),
           ];
+      // Agent-named role labels of the step's object and relation; names, never graded.
+      for (const item of [all.get(id), edge]) if (authoredLabelOf(item)) badges.push({ text: `代理命名 · ${authoredLabelOf(item)}`, tone: "name" });
       const reasonText = textOf(step.reason) && status ? step.reason : "";
       return {
         counter,
@@ -3840,16 +3929,17 @@
        and a footnote states what the marks mean. */
     const exportGrade = (n, textShown) => !authoring() || !n || !textShown ? null
       : fieldGrade(n, containers.has(n.id) ? "description" : "summary");
-    const nameMark = (n) => (nameChip(n) ? (authoring() ? "代理命名" : n.sourceRole === "authored-region" ? "代理划分" : "代理场景") : "");
+    const nameMark = (n) => [nameChip(n) ? (authoring() ? "代理命名" : n.sourceRole === "authored-region" ? "代理划分" : "代理场景") : "", authoredLabelOf(n) ? `代理命名 · ${authoredLabelOf(n)}` : ""].filter(Boolean).join(" · ");
+    const hubRole = (relation) => { const roles = [...new Set(relation.edges.map(authoredLabelOf).filter(Boolean))]; return roles.length === 1 ? roles[0] : ""; };
     const itemGrades = new Map(layout.items.map((p) => [p.n.id, exportGrade(p.n, Boolean(p.n.summary))]));
-    const named = [...layout.items.map((p) => p.n), ...layout.bounds.map((b) => all.get(b.id))].some((n) => nameMark(n));
+    const named = [...layout.items.map((p) => p.n), ...layout.bounds.map((b) => all.get(b.id))].some((n) => nameMark(n)) || layout.hubs.some((h) => hubRole(h.relation));
     const vocabulary = authoring()?.gradeVocabulary;
     const footnoteLines = [
       ...([...itemGrades.values()].some(Boolean)
         ? [`代理解读：${textOf(ownValue(vocabulary, "agent-interpretation")) || "由作者宿主依据引用的源码行撰写，是解读，不是解析得到的事实。"}`,
            ...["verified", "partly-verified", "unverified"].map((grade) => `代理解读 · ${INTERPRETATION_GRADES[grade]}：${textOf(ownValue(vocabulary, grade))}`)]
         : []),
-      ...(named ? [authoring() ? "代理命名：区域与场景的名称由作者宿主拟定，不是解析得到的事实，也不经核验。" : "代理划分 / 代理场景：由作者宿主划分或编排；其解读层格式不正确，未被采信，解读文字没有导出。"] : []),
+      ...(named ? [authoring() ? "代理命名：区域与场景的名称、对象与关系的作用标签由作者宿主拟定，不是解析得到的事实，也不经核验。" : "代理划分 / 代理场景：由作者宿主划分或编排；其解读层格式不正确，未被采信，解读文字没有导出。"] : []),
     ];
     const footnoteHeight = footnoteLines.length ? 20 + footnoteLines.length * 15 : 0;
     const footnote = footnoteLines.map((line, index) => `<text x="30" y="${layout.height + 118 + index * 15}" font-size="10" fill="${muted}">${escape(line)}</text>`).join("");
@@ -3870,7 +3960,7 @@
       .map((h) => {
         const t = CodeLoomSemantics.relation(h.relation.type),
           shape = relationTopology(h.relation.edges);
-        return `<g><title>${escape(t.label)} · ${shape.cardinality} · ${h.relation.edgeIds.length} 条</title><rect x="${h.x}" y="${h.y}" width="${h.w}" height="${h.h}" rx="17" fill="${panel}" stroke="${semanticInk(t)}"/><text x="${h.x + 9}" y="${h.y + h.h / 2 + 3}" font-size="10" fill="${semanticInk(t)}">↗ ${escape(relationTitle(h.relation).slice(0, 12))}${h.relation.edgeIds.length > 1 ? ` · ${h.relation.edgeIds.length}` : ""}</text></g>`;
+        return `<g><title>${escape(t.label)} · ${shape.cardinality} · ${h.relation.edgeIds.length} 条</title><rect x="${h.x}" y="${h.y}" width="${h.w}" height="${h.h}" rx="17" fill="${panel}" stroke="${semanticInk(t)}"/><text x="${h.x + 9}" y="${h.y + h.h / 2 + 3}" font-size="10" fill="${semanticInk(t)}">↗ ${escape(relationTitle(h.relation).slice(0, 12))}${h.relation.edgeIds.length > 1 ? ` · ${h.relation.edgeIds.length}` : ""}</text>${hubRole(h.relation) ? `<text data-interpretation="name" x="${h.x + 9}" y="${h.y + h.h + 11}" font-size="9" fill="#7a5bc4">代理命名 · ${escape(hubRole(h.relation))}</text>` : ""}</g>`;
       })
       .join("")}${layout.items
       .map((p) => {
@@ -3888,7 +3978,7 @@
     if (!doc) return;
     modal(
       doc.title,
-      `<p>${isAgentGuide(doc) && !doc.path ? "" : `<code>${escape(doc.path)}</code> · `}${isAgentGuide(doc) ? `${interpretationBadge(null)} 代理撰写的阅读指南：每条陈述后附引用的源码行，未经人工审阅` : doc.status === "proposal" ? "拟议方案，未核验实施" : generated() ? "自动提取的来源文本" : "示例阅读指南"}</p><pre>${escape(doc.content)}</pre>`,
+      `<p>${isAgentGuide(doc) && !doc.path ? "" : `<code>${escape(doc.path)}</code> · `}${isAgentGuide(doc) ? `${interpretationBadge(null)} 代理撰写的阅读导览：由这个场景已保留的解读按固定模板编排，未经人工审阅；每条解读的核验分级与引用在场景步骤和证据面板里` : doc.status === "proposal" ? "拟议方案，未核验实施" : generated() ? "自动提取的来源文本" : "示例阅读指南"}</p><pre>${escape(doc.content)}</pre>${isAgentGuide(doc) && listOf(doc.evidenceIds).length ? `<div class="section-label">源码</div><div class="authored-meta">${listOf(doc.evidenceIds).filter((id) => typeof id === "string").map(citationChip).join("")}</div>` : ""}`,
     );
   }
   const actions = {
@@ -4773,8 +4863,8 @@
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(fitCanvas, 120);
   });
-  // A generated model opened without a link starts on its top-ranked guide; curated demos and
-  // explicit links keep their own landing.
+  // A generated model opened without a link starts on its top-ranked guide, an authored one
+  // inside its core; curated demos and explicit links keep their own landing.
   if (bootViewRequested || !landOnGuide()) render();
   queueMicrotask(initializeLocalSource);
   // Read-only inspection API used by local validation, without exposing mutable UI state.

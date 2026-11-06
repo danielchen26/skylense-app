@@ -4051,6 +4051,17 @@ body.flow-reduced .flow-particle {
 .modal-content .review-error { color: #a33a2b; font-weight: 600; margin-bottom: 8px; }
 .modal-content .review-error:empty { display: none; }
 :is(html[data-theme="midnight"], html[data-theme="graphite"], html[data-theme="aurora"]) .review-badge[data-review="invalidated"] { background: repeating-linear-gradient(135deg, #3a2a10 0 4px, var(--panel) 4px 8px); color: #f0b45a; --review: #f0b45a; }
+/* Agent-named role labels of objects and relations (names, never graded). */
+.role-label { display: inline-flex; align-items: baseline; gap: 4px; margin-left: 5px; padding: 0 5px; border: 1px dashed var(--line); border-radius: 4px; background: var(--soft); color: var(--muted); font-size: 9px; font-weight: 500; font-style: normal; line-height: 1.6; white-space: nowrap; vertical-align: middle; cursor: help; }
+.role-label small { font-size: 9px; opacity: .8; white-space: normal; }
+[data-section="responsibility"] > .role-label { margin: 0 0 6px; }
+.hub-copy .hub-role { display: block; font-size: 9px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Automatic guides on an authored model: folded below the authored scenarios. */
+.automatic-guides { margin-top: 8px; }
+.automatic-guides > summary { display: flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: 11px; color: var(--muted); cursor: pointer; }
+.automatic-guides > summary svg { width: 12px; height: 12px; flex: none; }
+.automatic-guides > summary span { margin-left: auto; }
+.guide-link { margin: 6px 0 4px; }
 
 </style>
     <style>
@@ -12338,6 +12349,223 @@ if (typeof location !== "undefined") {
 })(typeof window !== "undefined" ? window : globalThis);
 
 </script>
+    <script data-skylense-module="derived-text">
+/* Parser text in the map's language (docs/AUTHORING.md § Presentation).
+ *
+ * Ingestion writes its reader-visible notes in English: a declaration's "<name> · function ·
+ * lines a–b. Static source declaration; not a runtime trace.", a file's "python · 40 source
+ * lines", the "Source · <file>" label of a file whose declarations it contains, edge and
+ * external-dependency boilerplate, and the titles of the automatic guides. An authored model
+ * written in Chinese shows those texts through the deterministic templates below. Nothing here
+ * is authored and nothing is inferred: each template restates exactly what the English note
+ * says, so the text stays derived and ungraded. A sentence no template knows is kept as written.
+ *
+ * The stored model is never changed: `localizeModel` returns a view whose changed items are
+ * copies (unchanged items are shared), and every field it rewrites keeps its English value
+ * next to it under `derivedText`. A declaration whose parser summary is its own docstring
+ * shows the declaration template instead, and the docstring moves to `sourceDocstring`: it is
+ * quoted source, shown as such in the inspector, not a caption in another language.
+ *
+ * Loaded by the workbench (window.SkylenseDerivedText) and by lib/interpretation.mjs for the
+ * terminal, CLI and MCP surfaces, so every surface uses the same wording. */
+(function (root) {
+  "use strict";
+
+  const KIND = Object.freeze({
+    function: "函数", method: "方法", class: "类", section: "章节", module: "模块", interface: "接口",
+    struct: "结构体", enum: "枚举", type: "类型", trait: "特征", protocol: "协议", variable: "变量",
+    constant: "常量", property: "属性", field: "字段", macro: "宏", namespace: "命名空间", schema: "结构定义",
+    document: "文档", file: "文件", external: "外部依赖", record: "记录", object: "对象", union: "联合体",
+    extension: "扩展", impl: "实现", package: "包", component: "组件", test: "测试", cell: "单元格",
+  });
+  const kindText = kind => (Object.hasOwn(KIND, kind) ? KIND[kind] : kind);
+
+  /* Whole sentences of ingestion boilerplate, matched exactly after trimming. */
+  const SENTENCES = new Map([
+    ["Static source declaration; not a runtime trace.", "静态源码声明，不是运行轨迹。"],
+    ["File metadata only; contents were not analyzed.", "只有文件元数据，内容未分析。"],
+    ["Declared external dependency reference; package contents were not fetched or indexed, and runtime availability is not verified.", "声明的外部依赖引用；没有取回或索引包的内容，也没有核实运行时是否可用。"],
+    ["Declared external references; dependency contents are not part of the indexed source.", "声明的外部引用；依赖的内容不在已索引的源码里。"],
+    ["The source declares this external dependency reference.", "源码声明了这个外部依赖引用。"],
+    ["Its contents and runtime binding were not inspected; this does not count as a resolved local-code relationship.", "没有检查它的内容和运行时绑定；这不算已解析的本地代码关系。"],
+    ["A source call expression resolves lexically to this unique included declaration.", "源码中的调用表达式按词法解析到这个唯一的已收录声明。"],
+    ["Decorators, rebinding and runtime behavior are not verified; this is not an observed execution or ordering claim.", "装饰器、重新绑定和运行时行为没有核实；这不是观察到的执行或先后顺序。"],
+    ["A static semantic binding resolves this call site to a unique included source declaration.", "静态语义绑定把这个调用点解析到唯一的已收录源码声明。"],
+    ["Runtime dispatch and execution order are not observed.", "没有观察运行时派发和执行顺序。"],
+    ["A unique same-file name match is a candidate, not a static proof of the callee or an execution trace.", "同一文件内唯一的同名匹配只是候选，不是被调用方的静态证明，也不是执行轨迹。"],
+    ["A declared class or interface heritage reference resolves through the project symbol table to this unique included source definition.", "声明的类或接口继承引用经项目符号表解析到这个唯一的已收录源码定义。"],
+    ["This is a structural relationship, not an execution sequence or proof that the implementation satisfies the contract.", "这是结构关系，不是执行顺序，也不证明实现满足契约。"],
+    ["static source reference resolves to an included local file.", "静态源码引用解析到一个已收录的本地文件。"],
+    ["unique included path inside this snapshot.", "在这个快照里解析到唯一的已收录路径。"],
+    ["This is a lexical dependency candidate, not a verified execution, call or runtime flow.", "这是词法依赖候选，不是核实过的执行、调用或运行时流程。"],
+    ["This is a static source binding, not proof of execution.", "这是静态源码绑定，不证明会执行。"],
+    ["This is a candidate, not a resolved relationship.", "这是候选，不是已解析的关系。"],
+    ["This is a candidate for the configurations that enable it, not a resolved relationship.", "这是启用它的配置下的候选，不是已解析的关系。"],
+    ["Source-backed static dependency neighborhood.", "有源码依据的静态依赖邻域。"],
+    ["Reading order is for navigation only, not an execution trace.", "阅读顺序只用于导航，不是执行轨迹。"],
+    ["Every displayed relationship retains its original direction and source evidence.", "显示的每条关系都保留原来的方向和源码依据。"],
+    ["Source hierarchy · expand folders to inspect files.", "源码层级 · 展开文件夹查看文件。"],
+    ["Containment does not imply execution.", "包含关系不代表执行。"],
+    ["Source file boundary · declarations are contained here; containment does not imply a call.", "源码文件边界 · 声明包含在这里；包含关系不代表调用。"],
+    ["Directory boundary · actual source path", "目录边界 · 实际源码路径"],
+    ["Authored page section · source text, not an inferred component", "页面章节 · 源码文本，不是推断出的组件"],
+    ["Collected page · source, authored sections and hyperlink references", "收集的页面 · 源文本、章节与超链接引用"],
+    ["Automatically collected source hierarchy and bounded static reference analysis.", "自动收集的源码层级与有界的静态引用分析。"],
+    ["Automatically analyzed source text.", "自动分析的源码文本。"],
+    ["Imports and hyperlinks are lexical candidates resolved against included files; Call-site bindings report their static or lexical provenance and do not form a complete runtime call graph.", "导入和超链接是按已收录文件解析的词法候选；调用点绑定注明其静态或词法来源，不构成完整的运行时调用图。"],
+    ["No code was executed and no runtime flow is inferred.", "没有执行任何代码，也没有推断运行时流程。"],
+    ["Excerpts may be partial when preview budgets are reached; bounded source previews are available in documents.", "预览预算用完时摘录可能不完整；有界的源码预览可在文档中查看。"],
+    ["Preview limits, skipped files and unresolved references are recorded in the ingestion report.", "预览上限、跳过的文件和未解析的引用记录在分析报告里。"],
+  ]);
+  const GUIDE_INTENT = Object.freeze({ "Module dependencies": "模块依赖", "Callable relationships": "调用关联", "Linked resources": "文档引用", "Related source": "关联概览" });
+  const LABELS = Object.freeze({ "External dependencies": "外部依赖" });
+
+  /* Whole-text templates, tried in order; each returns the Chinese text or null. */
+  const TEMPLATES = [
+    [/^(.+) · ([a-z][a-z -]*) · lines (\d+)–(\d+)\. Static source declaration; not a runtime trace\.$/, (m) => `${m[1]}：${kindText(m[2])}，第 ${m[3]}–${m[4]} 行。静态源码声明，不是运行轨迹。`],
+    [/^(.+) · (\d+) source lines( · preview truncated)?$/, (m) => `${m[1]} 源码，共 ${m[2]} 行${m[3] ? "，预览已截断" : ""}`],
+    [/^(.+) · binary · (\d+) bytes$/, (m) => `${m[1]}，二进制文件，${m[2]} 字节`],
+    [/^Lexical ([a-z][a-z -]*) scope · (.+)$/, (m) => `${kindText(m[1])}作用域 · ${m[2]}`],
+    [/^Unfetched (resource|hyperlink) reference · target contents were not inspected$/, (m) => `未取回的${m[1] === "resource" ? "资源" : "超链接"}引用 · 没有查看目标内容`],
+    [/^(\d+) source objects · (\d+) static relationships$/, (m) => `${m[1]} 个源码对象，${m[2]} 条静态关系`],
+  ];
+
+  /** Sentences of a note: split after a period that ends a sentence (". " followed by text),
+   *  and before a resolver's closing "This is a …" sentence, which may follow a reason that
+   *  has no final period. */
+  function sentences(text) {
+    return text.split(/(?<=\.)\s+(?=[A-Z])|\s+(?=This is a )/);
+  }
+
+  /* Resolver reasons that name modules and files; tried on one sentence each. */
+  const SENTENCE_TEMPLATES = [
+    [/^(\S+) binds the package and (\d+) unbound name\(s\) could load a submodule of it\.?$/, (m) => `${m[1]} 绑定了这个包，另有 ${m[2]} 个未绑定的名字可能加载它的子模块。`],
+    [/^The (\S+) entry names the module (\S+); (\S+) is that module only if the project's package root is the manifest directory, which this entry does not state\.?$/,
+      (m) => `${m[1]} 条目指向模块 ${m[2]}；只有当项目的包根目录就是清单所在目录时，${m[3]} 才是这个模块，而这个条目没有说明这一点。`],
+  ];
+
+  /** One English note in Chinese; the text itself when no template or sentence applies. A
+   *  resolver note "<form>: <sentences>" keeps its form name (an identifier). */
+  function translate(value) {
+    if (typeof value !== "string" || !value) return value;
+    const text = value.trim();
+    if (Object.hasOwn(LABELS, text)) return LABELS[text];
+    for (const [pattern, render] of TEMPLATES) {
+      const match = pattern.exec(text);
+      if (match) return render(match);
+    }
+    const form = /^([a-z][\w-]*): (.+)$/s.exec(text);
+    const body = form ? form[2] : text;
+    let changed = false;
+    const parts = sentences(body).map((sentence) => {
+      if (SENTENCES.has(sentence)) { changed = true; return SENTENCES.get(sentence); }
+      for (const [pattern, render] of SENTENCE_TEMPLATES) {
+        const match = pattern.exec(sentence);
+        if (match) { changed = true; return render(match); }
+      }
+      return sentence;
+    });
+    if (!changed) return value;
+    const joined = parts.reduce((out, part, index) => out + (index && !/[。；]$/.test(out) ? " " : "") + part, "");
+    return form ? `${form[1]}：${joined}` : joined;
+  }
+
+  /** The title of an automatic guide: "<anchor> · <intent>" with the intent in Chinese. */
+  function guideLabel(value) {
+    if (typeof value !== "string") return value;
+    const match = /^(.+) · (Module dependencies|Callable relationships|Linked resources|Related source)$/.exec(value);
+    return match ? `${match[1]} · ${GUIDE_INTENT[match[2]]}` : value;
+  }
+
+  const CJK = /[\u3400-\u9fff]/;
+  const ENGLISH_TEMPLATE = /Static source declaration|source lines|File metadata only|Declared external|external dependency reference|resolves lexically|static source reference|Source file boundary|Source hierarchy|Directory boundary|Callable relationships|Related source|Module dependencies|Linked resources|^Source · /;
+  /** Whether a shown text is English parser boilerplate or untranslated English prose: a known
+   *  English template, or text with no Chinese in it holding three or more plain English words
+   *  once URLs and code-shaped tokens (identifiers, paths, calls) are set aside. */
+  function isEnglish(text) {
+    if (typeof text !== "string" || !text.trim()) return false;
+    if (ENGLISH_TEMPLATE.test(text)) return true;
+    if (CJK.test(text)) return false;
+    const prose = text.replace(/[a-z][\w+.-]*:\/\/\S+/gi, " ").replace(/\S*[_./:\\()[\]{}<>=#@`$]\S*/g, " ");
+    return (prose.match(/\b[A-Za-z]{2,}\b/g) || []).length >= 3;
+  }
+
+  /** The declaration template of a symbol node, from its own kind, name and span. */
+  function declarationText(node) {
+    const span = node.sourceSpan || {};
+    const name = node.qualifiedName || node.label;
+    const lines = Number.isInteger(span.lineStart) ? `，第 ${span.lineStart}–${Number.isInteger(span.lineEnd) ? span.lineEnd : span.lineStart} 行` : "";
+    return `${name}：${kindText(node.kind)}${lines}。静态源码声明，不是运行轨迹。`;
+  }
+
+  const own = (record, key) => (record && typeof record === "object" && Object.hasOwn(record, key) ? record[key] : undefined);
+  /** Fields an `interpretation` marks as authored are never touched. */
+  const authoredField = (item, field) => {
+    const fields = own(own(item, "interpretation"), "fields");
+    return Boolean(fields && typeof fields === "object" && Object.hasOwn(fields, field));
+  };
+
+  /** A copy of one item with its derived reader-visible fields in Chinese, or the item itself. */
+  function localizeItem(item, kind) {
+    if (!item || typeof item !== "object") return item;
+    let copy = null;
+    const set = (field, value) => {
+      if (value === item[field]) return;
+      copy ||= { ...item, derivedText: { ...(own(item, "derivedText") || {}) } };
+      if (!Object.hasOwn(copy.derivedText, field)) copy.derivedText[field] = item[field];
+      copy[field] = value;
+    };
+    for (const field of ["summary", "description", "derivedSummary", "derivedDescription"]) {
+      if (typeof item[field] !== "string" || authoredField(item, field)) continue;
+      set(field, translate(item[field]));
+    }
+    // A declaration's own docstring is quoted source: kept aside, shown as such.
+    if (kind === "node" && item.sourceRole === "symbol" && !authoredField(item, "summary") && typeof item.summary === "string"
+      && !CJK.test(item.summary) && translate(item.summary) === item.summary) {
+      copy ||= { ...item, derivedText: { ...(own(item, "derivedText") || {}) } };
+      copy.sourceDocstring = item.summary;
+      set("summary", declarationText(item));
+    }
+    if (typeof item.label === "string") {
+      if (kind === "node" && item.sourceRole === "file" && item.label.startsWith("Source · ")) set("label", `源码 · ${item.label.slice("Source · ".length)}`);
+      else if (kind === "container" && Object.hasOwn(LABELS, item.label)) set("label", LABELS[item.label]);
+      else if (kind === "edge") {
+        const heritage = /^(extends|implements) (.+)$/.exec(item.label);
+        if (heritage && ["inherits", "implements"].includes(item.type)) set("label", `${heritage[1] === "extends" ? "继承" : "实现"} ${heritage[2]}`);
+      } else if (kind === "flow" && item.kind !== "authored-scenario") set("label", guideLabel(item.label));
+    }
+    if (kind === "flow" && item.kind !== "authored-scenario" && typeof item.title === "string") set("title", guideLabel(item.title));
+    return copy || item;
+  }
+
+  /** Whether a model's parser text is shown in Chinese: an authored layer written in zh. The
+   *  caller decides trust; an untrusted layer is shown through its derived-only view instead. */
+  function applies(model) {
+    const authoring = own(own(model, "meta"), "authoring");
+    return Boolean(authoring && typeof authoring === "object" && own(authoring, "lang") !== "en");
+  }
+
+  /** The view of a model with every derived reader-visible text in Chinese. */
+  function localizeModel(model) {
+    if (!applies(model)) return model;
+    const map = (list, kind) => (Array.isArray(list) ? list.map((item) => localizeItem(item, kind)) : list);
+    const view = { ...model, nodes: map(model.nodes, "node"), hierarchy: map(model.hierarchy, "container"), edges: map(model.edges, "edge"), flows: map(model.flows, "flow"), groups: map(model.groups, "container") };
+    if (model.meta && typeof model.meta === "object") {
+      const meta = { ...model.meta };
+      for (const field of ["description", "derivedDescription", "derivedEvidenceNote"])
+        if (typeof meta[field] === "string" && !authoredField(meta, field)) meta[field] = translate(meta[field]);
+      // evidenceNote = derived note + the authoring note (Chinese already).
+      if (typeof meta.evidenceNote === "string" && typeof model.meta.derivedEvidenceNote === "string" && meta.evidenceNote.startsWith(model.meta.derivedEvidenceNote))
+        meta.evidenceNote = translate(model.meta.derivedEvidenceNote) + meta.evidenceNote.slice(model.meta.derivedEvidenceNote.length);
+      view.meta = meta;
+    }
+    return view;
+  }
+
+  root.SkylenseDerivedText = Object.freeze({ translate, guideLabel, localizeItem, localizeModel, applies, isEnglish, declarationText });
+})(typeof window !== "undefined" ? window : globalThis);
+
+</script>
     <script data-skylense-module="focus">
 /* Canonical selection relevance, independent of level highlighting and layout. */
 (function (root) {
@@ -13729,11 +13957,14 @@ if (typeof location !== "undefined") {
   }
   function create(files, { joinRelative, choose }) {
     const dirname = p => p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "";
-    const configs = new Map(), packages = [], goModules = [];
+    const configs = new Map(), packages = [], goModules = [], pythonRoots = new Set();
     for (const [path, file] of files) {
       if (/(?:^|\/)(?:tsconfig|jsconfig)(?:\.[^/]*)?\.json$/.test(path)) configs.set(path, json(file.text));
       if (/(?:^|\/)package\.json$/.test(path)) { const value = json(file.text); if (value?.name) packages.push({ dir: dirname(path), value }); }
       if (/(?:^|\/)go\.mod$/.test(path)) { const name = /^\s*module\s+([^\s/][^\s]*)/m.exec(file.text || "")?.[1]; if (name) goModules.push({ dir: dirname(path), name }); }
+      // A Python distribution root below the snapshot root: a directory with its own build
+      // manifest. Its import roots are the directory and its src/ layout.
+      if (/(?:^|\/)(?:pyproject\.toml|setup\.py|setup\.cfg)$/.test(path) && path.includes("/")) pythonRoots.add(dirname(path));
     }
     const extensions = [".ts", ".tsx", ".d.ts", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs", ".json", ".vue", ".svelte"];
     function jsCandidates(path) {
@@ -13929,7 +14160,8 @@ if (typeof location !== "undefined") {
       // Otherwise its failure is authoritative once the compiler is available.
       if (typescript && !/\.(?![cm]?[jt]sx?$)[^./]+$/.test(spec)) {
         if (alias) return aliasMiss(alias);
-        return spec.startsWith(".") || spec.startsWith("/") || spec.startsWith("#") || /^[@~]\//.test(spec) ? unresolved("The included project configuration does not resolve this source module") : external(spec);
+        if (spec.startsWith(".") || spec.startsWith("/") || spec.startsWith("#") || /^[@~]\//.test(spec)) return unresolved("The included project configuration does not resolve this source module");
+        return jsWorkspacePackage(path, spec) || external(spec);
       }
       if (spec.startsWith(".")) return chooseOrdered(jsCandidates(joinRelative(dir, spec)));
       if (alias) {
@@ -13940,12 +14172,55 @@ if (typeof location !== "undefined") {
       for (const { dir: packageDir, value } of packages) {
         if (spec !== value.name && !spec.startsWith(value.name + "/")) continue;
         const sub = spec.slice(value.name.length).replace(/^\//, "");
-        const exportValue = typeof value.exports === "string" ? !sub && value.exports : value.exports?.[sub ? "./" + sub : "."];
-        const targets = typeof exportValue === "string" ? [exportValue] : exportValue && typeof exportValue === "object" ? Object.values(exportValue).filter(v => typeof v === "string") : sub ? [sub] : [value.source, value.module, value.main, "index"].filter(v => typeof v === "string");
-        return chooseOrdered(targets.flatMap(t => jsCandidates(joinRelative(packageDir, t))));
+        return chooseOrdered(packageEntries(value, sub).flatMap(t => jsCandidates(joinRelative(packageDir, t))));
       }
       if (spec.startsWith("/") || spec.startsWith("#") || /^[@~]\//.test(spec)) return unresolved("Unconfigured local path alias");
       return external(spec);
+    }
+    /** The entry files a package.json names for `sub` (empty: the package itself). */
+    function packageEntries(value, sub) {
+      const exportValue = typeof value.exports === "string" ? !sub && value.exports : value.exports?.[sub ? "./" + sub : "."];
+      return typeof exportValue === "string" ? [exportValue] : exportValue && typeof exportValue === "object" ? Object.values(exportValue).filter(v => typeof v === "string") : sub ? [sub] : [value.source, value.module, value.main, "index"].filter(v => typeof v === "string");
+    }
+    /* A bare JS/TS specifier that names a package.json below the snapshot root: a
+       workspace package of a monorepo. A package manager links it into node_modules,
+       which is never read, so whether that copy is the one the build uses is not
+       evaluated: each source file it reaches is a candidate, never a resolved relation. */
+    function jsWorkspacePackage(path, spec) {
+      const found = new Set(), dirs = [];
+      for (const { dir, value } of packages) {
+        if (!dir || (spec !== value.name && !spec.startsWith(value.name + "/"))) continue;
+        const sub = spec.slice(value.name.length).replace(/^\//, "");
+        // A built entry (dist/…) is not in the source tree; its source layout stands in.
+        const entries = [...packageEntries(value, sub), ...(sub ? ["src/" + sub] : ["src/index", "index"])];
+        const target = entries.flatMap(t => jsCandidates(joinRelative(dir, t))).find(p => p && files.has(p));
+        if (target) { found.add(target); dirs.push(dir); }
+      }
+      const targets = [...found].filter(target => target !== path).sort();
+      if (!targets.length || targets.length > SIBLING_TARGETS) return null;
+      return { targets, status: "candidate", engine: "source-resolver", rule: "js-workspace-package", reasonCode: "sibling-package",
+        reason: `${spec} is the name of the package.json in ${dirs.sort().join(" and ")} inside the snapshot; a package manager links it through node_modules, which is not read, so which copy the build uses is not evaluated` };
+    }
+    /* An absolute Python import that no file at the snapshot root provides, but that a
+       distribution root inside the snapshot (a directory with its own pyproject.toml,
+       setup.py or setup.cfg) does: a monorepo's sibling package, or a package whose source
+       sits below the root. Whether that distribution is the one installed is not evaluated,
+       so every match is a candidate, never a resolved relation. */
+    const SIBLING_TARGETS = 4;
+    function pythonSiblingPackage(path, module, names) {
+      if (!pythonRoots.size || !module) return null;
+      const stems = [...pythonRoots].sort().flatMap(dir => [dir, dir + "/src"]).map(prefix => prefix + "/" + module.replace(/\./g, "/"));
+      const found = new Set();
+      for (const stem of stems) {
+        const direct = [stem + ".py", stem + "/__init__.py"].filter(p => files.has(p));
+        for (const target of direct) found.add(target);
+        if (direct.length) continue;
+        for (const name of names || []) if (name !== "*") for (const sub of [stem + "/" + name + ".py", stem + "/" + name + "/__init__.py"]) if (files.has(sub)) found.add(sub);
+      }
+      const targets = [...found].filter(target => target !== path).sort();
+      if (!targets.length || targets.length > SIBLING_TARGETS) return null;
+      return { targets, status: "candidate", engine: "source-resolver", rule: "python-sibling-package-root", reasonCode: "sibling-package",
+        reason: `${module} is not provided at the snapshot root; ${targets.length === 1 ? "a package" : `${targets.length} packages`} below a distribution root inside the snapshot provide${targets.length === 1 ? "s" : ""} it, and which distribution is installed is not evaluated` };
     }
     return function resolve(path, fact) {
       const spec = fact.specifier || "", form = fact.form || "", dir = dirname(path);
@@ -13975,6 +14250,7 @@ if (typeof location !== "undefined") {
         const sub = form === "python-from" && !dynamic ? (fact.names || []).filter(n => n !== "*" && !bindings.has(n)).flatMap(name => stems.flatMap(stem => { const base = (stem ? stem + "/" : "") + name; return [base + ".py", base + "/__init__.py"]; })).filter(p => files.has(p)) : [];
         if (direct.targets.length || sub.length) return { targets: [...new Set([...direct.targets, ...sub])] };
         if (direct.reason === "Ambiguous local resolution") return direct;
+        if (!spec.startsWith(".")) { const sibling = pythonSiblingPackage(path, module, form === "python-from" ? fact.names : []); if (sibling) return sibling; }
         return spec.startsWith(".") ? direct : external(spec);
       }
       if (form === "go-import") {
@@ -25947,7 +26223,9 @@ globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";
     const relations = analysis.relations || [];
     const nodes = model.nodes || [];
     const withSummary = nodes.filter(node => node.summary && !/static source declaration|Source hierarchy/i.test(node.summary));
-    const withContracts = nodes.filter(node => (node.functions || []).some(fn => (fn.inputs || []).length || (fn.outputs || []).length || fn.sourceContract));
+    // A declaration's sourceContract sits on its symbol node; functions[] reaches it by nodeId.
+    const nodeById = new Map(nodes.map(node => [node.id, node]));
+    const withContracts = nodes.filter(node => (node.functions || []).some(fn => (fn.inputs || []).length || (fn.outputs || []).length || fn.sourceContract || nodeById.get(fn.nodeId)?.sourceContract));
     const dims = [];
     const pass = (id, name, ok, evidence, note) => {
       const row = dimension(id, name, ok ? "pass" : "fail", evidence, note);
@@ -28630,24 +28908,40 @@ globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";
     const resourceFailure = message => { throw Object.assign(new Error(message + " Complete indexing stopped; choose a narrower source or explicitly request preview mode."), { code: "RESOURCE_LIMIT" }); };
 
     const report = { ...(options.report && typeof options.report === "object" ? options.report : {}), analyzer: options.report?.syntax?.engine === "tree-sitter" ? "skylense-syntax-v1" : "skylense-static-v2", mode: complete ? "complete" : "preview", limits, inputEntries: entries.length, acceptedFiles: 0, analyzedFiles: 0, metadataOnlyFiles: 0, textBytes: 0, truncatedFiles: 0, skipped: Array.isArray(options.report?.skipped) ? options.report.skipped.slice(0, 1000) : [], warnings: Array.isArray(options.report?.warnings) ? options.report.warnings.slice(0, 1000) : [], unresolved: [], capabilities: { hierarchy: "Filesystem and source declaration boundaries for accepted paths; syntax nesting when a supported parser is available", symbols: "Supported syntax-tree declarations, lexical fallbacks and authored document headings; parser coverage is reported per file", relationships: "Included static import/link/resource references, declared external dependencies, and conservatively bound call sites", execution: false, aiInference: false, unsupported: "Other text is previewed; binary/PDF/image/archive contents are metadata only. Literal JS dynamic imports and re-exports are supported. Computed targets, dynamic member dispatch, notebook cells and arbitrary-language runtime call graphs are not resolved; configured path resolution depends on included manifests. Python bare calls may abstain for shadowing, ambiguity or missing sources." } };
-    let symbolsUsed = 0, evidenceBytes = 0, evidenceTruncated = 0;
+    let symbolsUsed = 0, evidenceBytes = 0, evidenceReferenceBytes = 0, evidenceTruncated = 0;
     const sourceLines = new Map(), excerptCache = new Map();
+    /* One excerpt per distinct source span, shared by reference: each declaration,
+       container and relation citing the span gets its own evidence object holding the
+       same string. A complete build charges a span once, for the text it retains; a
+       minified line cited by thousands of declarations and calls is one excerpt, not
+       thousands. What every reference repeats in the export is the export's own bound,
+       and those references alone already exceeding it ends the build here rather than
+       after serializing a model that cannot fit. A preview charges every reference,
+       because its budget decides how much excerpt text the bounded export carries. */
     function evidence(file, text, start, end, url) {
       if (!sourceLines.has(file)) sourceLines.set(file, indexLines(text));
       const key = file + "\0" + start + "\0" + end;
       let cached = excerptCache.get(key);
+      const charged = !cached || !complete;
       if (!cached) {
         const item = lineEvidence(file, sourceLines.get(file), start, end, url), bytes = encoder.encode(item.excerpt);
         const clipped = truncateBytes(item.excerpt, 2048, bytes);
         cached = { item: { ...item, excerpt: clipped.text }, byteLength: bytes.length, clipped };
-        // Scratch data belongs to this build only. Cap retained previews, not
-        // graph facts; every uncached reference follows the same extraction.
-        if (excerptCache.size < 8192) excerptCache.set(key, cached);
+        // A complete build keeps every span: the cache is the retained text the
+        // ledger charged. A preview caps its scratch copies, not graph facts; every
+        // uncached reference follows the same extraction.
+        if (complete || excerptCache.size < 8192) excerptCache.set(key, cached);
       }
-      const item = { ...cached.item }, remaining = Math.max(0, limits.maxEvidenceBytes - evidenceBytes);
-      if (complete && remaining < Math.min(2048, cached.byteLength)) resourceFailure("Source evidence safety ceiling reached.");
-      const clipped = remaining >= 2048 ? cached.clipped : { ...truncateBytes(cached.clipped.text, remaining), truncated: cached.byteLength > remaining };
-      evidenceBytes += clipped.bytes;
+      const item = { ...cached.item };
+      let clipped = cached.clipped;
+      if (charged) {
+        const remaining = Math.max(0, limits.maxEvidenceBytes - evidenceBytes);
+        if (complete && remaining < Math.min(2048, cached.byteLength)) resourceFailure("Source evidence safety ceiling reached.");
+        if (remaining < 2048) clipped = { ...truncateBytes(cached.clipped.text, remaining), truncated: cached.byteLength > remaining };
+        evidenceBytes += clipped.bytes;
+      }
+      evidenceReferenceBytes += clipped.bytes;
+      if (complete && evidenceReferenceBytes > limits.maxSerializedBytes - 4096) resourceFailure("Source evidence cited by the graph exceeds the " + (limits.maxSerializedBytes / 1024 / 1024) + " MiB model export ceiling.");
       if (clipped.truncated) { item.excerpt = clipped.text; item.excerptTruncated = true; evidenceTruncated++; }
       return item;
     }
@@ -28807,8 +29101,11 @@ globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";
           hierarchy.push(boundary); value.boundaries.set(index, boundary); symbolContainers++; symbolParent = boundary.id; symbolLevel++;
         }
         const bodyEnd = Math.max(symbol.endLine, Math.min(symbol.bodyEndLine || symbol.endLine, symbol.line + 31));
-        const clonedContract = preview.sourceContract ? JSON.parse(JSON.stringify(preview.sourceContract)) : undefined;
-        nodes.push({ id: symbolId, label: symbol.name, qualifiedName: preview.qualifiedName, path, kind: symbol.kind === "section" ? "document" : symbol.kind === "struct" ? "class" : ["class", "function", "interface", "module"].includes(symbol.kind) ? symbol.kind : "schema", sourceRole: "symbol", parentId: symbolParent, group: rootId, level: symbolLevel, summary: symbol.summary || `${preview.qualifiedName} · ${symbol.kind} · lines ${symbol.line}–${symbol.bodyEndLine || symbol.endLine}. Static source declaration; not a runtime trace.`, functions: [], inputs: preview.inputs || [], outputs: preview.outputs || [], ...(clonedContract ? { sourceContract: clonedContract } : {}), documentIds: [...value.node.documentIds], evidenceStatus: "source-text", evidence: [evidence(path, value.text, symbol.line, bodyEnd, value.url)], sourceSpan: { lineStart: symbol.line, lineEnd: symbol.bodyEndLine || symbol.endLine }, ...(value.node.url ? { url: value.node.url } : {}) });
+        // One contract per declaration: the symbol node carries it, and the
+        // file's functions[] entry reaches it through the nodeId set below.
+        const contract = preview.sourceContract;
+        delete preview.sourceContract;
+        nodes.push({ id: symbolId, label: symbol.name, qualifiedName: preview.qualifiedName, path, kind: symbol.kind === "section" ? "document" : symbol.kind === "struct" ? "class" : ["class", "function", "interface", "module"].includes(symbol.kind) ? symbol.kind : "schema", sourceRole: "symbol", parentId: symbolParent, group: rootId, level: symbolLevel, summary: symbol.summary || `${preview.qualifiedName} · ${symbol.kind} · lines ${symbol.line}–${symbol.bodyEndLine || symbol.endLine}. Static source declaration; not a runtime trace.`, functions: [], inputs: preview.inputs || [], outputs: preview.outputs || [], ...(contract ? { sourceContract: contract } : {}), documentIds: [...value.node.documentIds], evidenceStatus: "source-text", evidence: [evidence(path, value.text, symbol.line, bodyEnd, value.url)], sourceSpan: { lineStart: symbol.line, lineEnd: symbol.bodyEndLine || symbol.endLine }, ...(value.node.url ? { url: value.node.url } : {}) });
         preview.nodeId = symbolId; value.symbolNodes.set(index, symbolId); navigableSymbols++;
         if (collection === documentFiles) documentNavigation++;
       }
@@ -29172,7 +29469,7 @@ globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";
       report.emptySource = true;
       report.warnings.push("The selected folder contained no included source files.");
     }
-    report.evidenceBytes = evidenceBytes; report.truncatedExcerpts = evidenceTruncated;
+    report.evidenceBytes = evidenceBytes; report.evidenceReferenceBytes = evidenceReferenceBytes; report.truncatedExcerpts = evidenceTruncated;
     if (evidenceTruncated) report.warnings.push("Some excerpts are partial because of preview budgets; bounded source previews remain in documents.");
     report.truncated = Boolean(evidenceTruncated || (symbolsUsed - documentSymbols) >= limits.maxSymbolsTotal || options.report?.truncated || report.truncatedFiles || report.warnings.some(item => typeof item === "string" && /limited|budget/i.test(item)) || report.skipped.some(item => /limit|budget/i.test(item.reason || "")) || edgeCap);
     report.previewTruncated = Boolean(evidenceTruncated || documents.some(doc => doc.previewTruncated));
@@ -29223,9 +29520,16 @@ globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";
     const model = { meta: { id: "ingest_" + hash(source + "\0" + title), title, description: "Automatically collected source hierarchy and bounded static reference analysis.", version: 1, source, revision, sourceFolder: title, contentProvenance: "generated", ...(safeUrl(options.url) ? { repository: safeUrl(options.url) } : {}), evidenceNote: "Automatically analyzed source text. Imports and hyperlinks are lexical candidates resolved against included files; Call-site bindings report their static or lexical provenance and do not form a complete runtime call graph. No code was executed and no runtime flow is inferred. Excerpts may be partial when preview budgets are reached; bounded source previews are available in documents. Preview limits, skipped files and unresolved references are recorded in the ingestion report.", defaultScope: "system", defaultOpen: [], ingestion: report, count: { groups: 1, containers: hierarchy.length, nodes: nodes.length, edges: edges.length, functions: report.symbols, documents: documents.length } }, groups: [group], hierarchy, nodes, edges, flows: [], documents };
     root.SkylenseSourceInsights?.enrich(model);
     // Escaped JSON can be much larger than UTF-8 source text (for example logs
-    // containing backslashes or control characters). Cap the actual pretty JSON
-    // used by CLI/browser exports, keeping every graph identity and relationship.
-    const outputSize = () => encoder.encode(JSON.stringify(model, null, 2)).length + 1;
+    // containing backslashes or control characters). Cap the compact JSON every
+    // writer can fall back to (lib/export-ceiling.mjs writes indentation only while
+    // it fits), keeping every graph identity and relationship.
+    // A model past the engine's string limit cannot be exported at all: the
+    // serializer's RangeError is the export ceiling, reported as one.
+    const outputSize = () => {
+      let text;
+      try { text = JSON.stringify(model); } catch (error) { if (error instanceof RangeError) resourceFailure("Graph metadata and source evidence exceed the " + (limits.maxSerializedBytes / 1024 / 1024) + " MiB model export ceiling: the model is too large to serialize."); throw error; }
+      return encoder.encode(text).length + 1;
+    };
     const exportTarget = limits.maxSerializedBytes - 4096;
     let serializedBytes = outputSize();
     if (serializedBytes > exportTarget) {
@@ -29259,11 +29563,6 @@ globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";
       for (const node of nodes) if (node.documentIds?.some(docId => trimmed.has(docId))) node.previewTruncated = true;
       if (outputSize() > exportTarget) resourceFailure("Graph metadata exceeds the " + (limits.maxSerializedBytes / 1024 / 1024) + " MiB export ceiling.");
     }
-    report.serializedBytes = 0;
-    report.serializedBytes = outputSize();
-    // Only this non-negative integer changed in the second measurement. Its
-    // decimal digit growth is the exact UTF-8/pretty-JSON byte delta.
-    report.serializedBytes += String(report.serializedBytes).length - 1;
     if (root.SkylenseModelMigrations) {
       // One store describing what was actually read: the decoded text, the raw
       // byte hash when the reader supplied one, and whether the stored text is
@@ -29312,6 +29611,17 @@ globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";
         root.SkylenseModelMigrations.admitModel(model, { sources, origin: "source-analysis" });
       }
     }
+    // The analysis layer is part of every written model. The reported size and the
+    // complete-mode export ceiling are measured on the model as it is returned, not on the
+    // graph before migration added the layer (about a third of the final bytes on vLLM).
+    // The 4 KiB below the ceiling stays reserved for the digest and cache facts the
+    // folder reader adds afterwards; every writer measures its own bytes again.
+    report.serializedBytes = 0;
+    report.serializedBytes = outputSize();
+    // Only this non-negative integer changed in the second measurement. Its
+    // decimal digit growth is the exact UTF-8/compact-JSON byte delta.
+    report.serializedBytes += String(report.serializedBytes).length - 1;
+    if (complete && report.serializedBytes > exportTarget) resourceFailure("The analyzed model with its analysis layer is " + report.serializedBytes + " bytes, over the " + (limits.maxSerializedBytes / 1024 / 1024) + " MiB model export ceiling.");
     if (semanticIndex) for (const [path, map] of semanticPuts) semanticIndex.putSemantic(semanticKeys.get(path), { version: semanticIndex.version, map });
     return model;
   }
@@ -30602,7 +30912,7 @@ globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";
     return data.analysis;
   }
   function recomputeReadiness() {
-    if (Claims() && isRecord(data.analysis)) data.analysis.readiness = Claims().readinessOf(data, data.analysis);
+    if (Claims() && isRecord(data.analysis)) data.analysis.readiness = Claims().readinessOf(factsModel(), data.analysis);
   }
   function restoreStoredReviews() {
     if (!Claims() || !isRecord(data.analysis)) return;
@@ -31259,7 +31569,7 @@ globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";
   function authoringProblem(a, model) {
     if (!isRecord(a)) return "meta.authoring 不是对象";
     const optional = (value, test) => value === undefined || value === null || test(value);
-    for (const key of ["brief", "coverage", "verdicts", "gradeVocabulary", "regionPlan", "host", "accepted"])
+    for (const key of ["brief", "coverage", "verdicts", "gradeVocabulary", "regionPlan", "scope", "host", "accepted"])
       if (!optional(a[key], isRecord)) return `meta.authoring.${key} 不是对象`;
     for (const key of ["regions", "startHere", "entrypoints", "rejected", "objects", "regionRelations", "scenarios"])
       if (!optional(a[key], Array.isArray)) return `meta.authoring.${key} 不是数组`;
@@ -31270,6 +31580,7 @@ globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";
       if (!optional(a.coverage?.[key], isRecord)) return `meta.authoring.coverage.${key} 不是对象`;
     if (!optional(a.coverage?.skipped, Array.isArray)) return "meta.authoring.coverage.skipped 不是数组";
     if (!optional(a.regionPlan?.dissolved, Array.isArray)) return "meta.authoring.regionPlan.dissolved 不是数组";
+    if (!optional(a.scope?.coreFiles, Array.isArray)) return "meta.authoring.scope.coreFiles 不是数组";
     // Every projected `interpretation` names the claim behind each field; without `fields`
     // (e.g. a model projected before fields existed) no field can be graded.
     for (const item of [model?.meta, ...listOf(model?.hierarchy), ...listOf(model?.nodes), ...listOf(model?.edges), ...listOf(model?.flows)])
@@ -31278,17 +31589,28 @@ globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";
     return null;
   }
   /**
-   * The model the workbench shows. A trusted (or absent) layer is shown as stored. An untrusted
+   * The model the workbench shows. A trusted layer written in Chinese is shown through a view
+   * whose derived parser text is in Chinese (src/derived-text.js); the stored text stays in the
+   * model and under each item's `derivedText`. An absent layer is shown as stored. An untrusted
    * one is shown through a copy holding only derived text: summary/description/evidenceNote
    * take their stored derived values, text that has none (region descriptions, interfaces,
-   * scenario descriptions and step reasons, the reading guide) is removed, and every
+   * scenario descriptions and step reasons, the reading guides) is removed, and every
    * `interpretation` is dropped. The stored model itself is kept for export.
    */
+  var localizedViews;
   function displayModel(model) {
     untrustedViews ||= new WeakMap();
-    if (untrustedViews.has(model) || model?.meta?.authoring === undefined || model.meta.authoring === null) return model;
+    localizedViews ||= new WeakMap();
+    if (untrustedViews.has(model) || localizedViews.has(model) || model?.meta?.authoring === undefined || model.meta.authoring === null) return model;
     const problem = authoringProblem(model.meta.authoring, model);
-    if (!problem) return model;
+    if (!problem) {
+      const localize = window.SkylenseDerivedText?.localizeModel;
+      const view = localize ? localize(model) : model;
+      if (view === model) return model;
+      if (Object.isFrozen(model)) Object.freeze(view);
+      localizedViews.set(view, model);
+      return view;
+    }
     const view = structuredClone(model);
     const revert = (item, field, derived) => {
       if (!Object.hasOwn(item, derived)) return;
@@ -31299,7 +31621,7 @@ globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";
     for (const item of [...recordsOf(view.hierarchy), ...recordsOf(view.nodes)]) {
       revert(item, "summary", "derivedSummary");
       revert(item, "description", "derivedDescription");
-      if (Object.hasOwn(item, "interpretation")) delete item.interface;
+      if (Object.hasOwn(item, "interpretation")) { delete item.interface; delete item.authoredInputs; delete item.authoredOutputs; }
       if (item.sourceRole === "authored-region") { regionIds.add(item.id); delete item.description; delete item.evidence; }
       delete item.interpretation;
     }
@@ -31316,13 +31638,25 @@ globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";
       revert(view.meta, "evidenceNote", "derivedEvidenceNote");
       delete view.meta.interpretation;
     }
-    view.documents = listOf(view.documents).filter((doc) => doc?.id !== "auth_overview");
+    view.documents = listOf(view.documents).filter((doc) => !isGuideId(doc?.id));
     untrustedViews.set(view, { problem, source: model });
     return view;
   }
-  /** The model as stored (what export writes), for the model currently shown. */
+  /** The model as stored (what export writes), for the model currently shown. A Chinese view
+   *  shares the stored analysis; a review that had to copy a frozen claim list is carried over. */
   function storedModel() {
+    const source = localizedViews?.get(data);
+    if (source) return source.analysis === data.analysis ? source : { ...source, analysis: data.analysis };
     return untrustedViews?.get(data)?.source || data;
+  }
+  /** The model whose texts capability and review checks read: the shown model, except that a
+   *  Chinese view of parser text is presentation only and never feeds a capability row. */
+  function factsModel() {
+    return localizedViews?.has(data) ? storedModel() : data;
+  }
+  /** Id of the agent reading guide of one scenario (docs/AUTHORING.md § Projection). */
+  function isGuideId(id) {
+    return typeof id === "string" && id.startsWith("auth_guide_");
   }
   /** Why this model's authored layer is not trusted, or null (no layer, or a well-formed one). */
   function authoringNotice() {
@@ -31353,6 +31687,23 @@ globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";
     if (!text) return "";
     const title = authoring() ? "名称由作者宿主拟定，不是解析得到的事实，也不经核验。" : "这部分由作者宿主划分或编排；它的解读层格式不正确，解读文字没有显示。";
     return `<span class="name-chip" title="${title}">${text}</span>`;
+  }
+  /** An authored short role label: an object's `roleLabel` or an edge's `authoredRelation.label`.
+   *  Like region and scenario names it is chosen by the author host, not a claim, never graded,
+   *  and shown only while the authored layer is trusted. */
+  function authoredLabelOf(item) {
+    if (!authoring()) return "";
+    return textOf(isRecord(item?.authoredRelation) ? item.authoredRelation.label : item?.roleLabel).trim();
+  }
+  function roleChip(item) {
+    const text = authoredLabelOf(item);
+    if (!text) return "";
+    const note = isRecord(item?.authoredRelation) ? textOf(item.authoredRelation.note).trim() : "";
+    return `<i class="role-label" title="作用标签由作者宿主拟定，不是解析得到的事实，也不经核验。">代理命名 · ${escape(text)}${note ? `<small>${escape(note)}</small>` : ""}</i>`;
+  }
+  /** A declaration's own docstring, kept aside by the Chinese view of parser text: quoted source. */
+  function sourceDocstringBlock(n) {
+    return textOf(n?.sourceDocstring) ? `<p class="derived-line"><span>源码文档字符串（原文）</span>${escape(n.sourceDocstring)}</p>` : "";
   }
   function orientationLanding() { return Boolean(data.meta?.landing === "orientation" && authoring()); }
   // A malformed layer degrades fully: its scenarios are read as ordinary flows.
@@ -31496,15 +31847,24 @@ globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";
   function authoredStatement(text, status, evidenceIds = [], derived = "", headline = "") {
     return `<div class="authored-statement">${headline ? `<p class="detail-text authored-summary">${escape(headline)}</p>` : ""}<p class="detail-text">${escape(text)}</p>${authoredMeta(status, evidenceIds)}${derived ? `<p class="derived-line"><span>解析得到</span>${escape(derived)}</p>` : ""}</div>`;
   }
-  /** The agent-written reading guide. Curated demos also use the `authored-reading-guide`
-   *  status for human guides, so the status alone never marks a document as agent output. */
+  /** An agent-written reading guide (one per scenario). Curated demos also use the
+   *  `authored-reading-guide` status for human guides, so the status alone never marks a
+   *  document as agent output. */
   function isAgentGuide(doc) {
-    return Boolean(authoring()) && doc?.id === "auth_overview";
+    return Boolean(authoring()) && isGuideId(doc?.id);
   }
-  /** Documents in reading order: the agent reading guide first, the rest as stored. */
+  /** Documents in reading order: the agent reading guides first, the rest as stored. */
   function orderedDocuments(docs = data.documents || []) {
-    const guide = docs.find(isAgentGuide);
-    return guide ? [guide, ...docs.filter((d) => d !== guide)] : docs;
+    return [...docs.filter(isAgentGuide), ...docs.filter((d) => !isAgentGuide(d))];
+  }
+  /** The reading guide of one authored scenario, or null. */
+  function scenarioGuide(flow) {
+    const id = textOf(flow?.guideId);
+    return id && isGuideId(id) ? (data.documents || []).find((d) => d.id === id && isAgentGuide(d)) || null : null;
+  }
+  function guideButton(flow) {
+    const guide = scenarioGuide(flow);
+    return guide ? `<button class="btn guide-link" data-action="document" data-id="${escape(guide.id)}">${icon("document")}阅读导览</button>` : "";
   }
   const RESOLUTION_LABELS = {
     "resolved-static": "静态已证实", "source-declared": "源码声明", candidate: "候选 · 未证实",
@@ -31549,7 +31909,7 @@ globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";
     const unproven = steps.filter(scenarioStepUnproven).length;
     const narrative = steps.filter(scenarioStepNarrative).length;
     const description = textOf(flow.description);
-    return `<details class="scenario-brief"${state.step === 0 ? " open" : ""}><summary>${icon("info")}场景说明${unproven ? `<b class="unproven-badge">${unproven} 步未证实调用</b>` : ""}${narrative ? `<b class="narrative-badge">${narrative} 步叙述衔接</b>` : ""}</summary>${description && claimRecord(descriptionClaim) ? authoredStatement(description, claimStatus(descriptionClaim), claimEvidence(descriptionClaim)) : '<p class="micro">这个场景没有保留说明文字。</p>'}</details>${scenarioStepBlock(flow)}`;
+    return `<details class="scenario-brief"${state.step === 0 ? " open" : ""}><summary>${icon("info")}场景说明${unproven ? `<b class="unproven-badge">${unproven} 步未证实调用</b>` : ""}${narrative ? `<b class="narrative-badge">${narrative} 步叙述衔接</b>` : ""}</summary>${description && claimRecord(descriptionClaim) ? authoredStatement(description, claimStatus(descriptionClaim), claimEvidence(descriptionClaim)) : '<p class="micro">这个场景没有保留说明文字。</p>'}${guideButton(flow)}</details>${scenarioStepBlock(flow)}`;
   }
   /** The scenario step being read: its reason, direction and the edge's IR resolution. */
   function scenarioStepBlock(flow) {
@@ -31564,7 +31924,7 @@ globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";
     const via = narrative
       ? `<p class="micro">从 ${escape(label(previous))} 到 ${escape(label(nodeId))} 的衔接只由引用的文字说明；代码里没有记录这两者之间的关系，图上也不画连接。</p>`
       : edge
-        ? `<button class="scenario-edge${unproven ? " is-unproven" : ""}" data-action="raw-edge" data-id="${escape(edge.id)}" style="${typeStyle(edge.type)}">${typeBadge(edge.type)}<span>${escape(label(edge.source))} <span class="inline-arrow">→</span> ${escape(label(edge.target))}</span>${icon("chevron")}</button><p class="micro">${direction === "反向" ? `沿这条关系逆向走到 ${escape(label(nodeId))}：箭头仍指向模型记录的方向。` : `沿这条关系的方向走到 ${escape(label(nodeId))}。`}</p>`
+        ? `<button class="scenario-edge${unproven ? " is-unproven" : ""}" data-action="raw-edge" data-id="${escape(edge.id)}" style="${typeStyle(edge.type)}">${typeBadge(edge.type)}<span>${escape(label(edge.source))} <span class="inline-arrow">→</span> ${escape(label(edge.target))}</span>${roleChip(edge)}${icon("chevron")}</button><p class="micro">${direction === "反向" ? `沿这条关系逆向走到 ${escape(label(nodeId))}：箭头仍指向模型记录的方向。` : `沿这条关系的方向走到 ${escape(label(nodeId))}。`}</p>`
         : index === 0 ? "" : '<p class="micro">这一步没有记录连接的关系。</p>';
     const status = scenarioStepStatus(step);
     const reason = textOf(step.reason) && status
@@ -31628,6 +31988,13 @@ globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";
     const inner = `<p class="coverage-note">${icon("info")}${escape(note)}</p><p class="coverage-ledger">${escape(ledger)}</p>${details.body}`;
     return compact ? `<details class="coverage-strip"><summary>${icon("info")}代理解读覆盖：${escape(note)}</summary>${inner}</details>` : inner;
   }
+  /** What the core selection leaves out, counted by the builder (not authored, never graded). */
+  function scopeNote(a) {
+    const scope = isRecord(a.scope) ? a.scope : null;
+    if (!scope || !Array.isArray(scope.coreFiles)) return "";
+    const outside = Number.isInteger(scope.outsideFiles) ? scope.outsideFiles : 0;
+    return `<p class="micro scope-note">核心选了 ${scope.coreFiles.length} 个文件${outside ? `；其余 ${outside} 个文件放在「核心之外」，仍计入覆盖，可展开查看` : ""}。这是代理的选择，并不完整。</p>`;
+  }
   /** The inspector's empty state for an authored model: the reading entry to the whole map. */
   function orientationPanel() {
     const a = authoring(), brief = isRecord(a.brief) ? a.brief : {};
@@ -31641,20 +32008,19 @@ globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";
     const regions = regionList.map((r) => {
       const key = textOf(r.key), description = `cl_auth_region_${key}`;
       return `<button class="region-button" data-action="scope" data-id="${escape(r.id)}" style="--tone:${safeColor(r.color, groupColor(all.get(r.id)))}"><span class="region-title"><i class="dot"></i><b>${escape(textOf(r.label) || label(r.id))}</b>${nameChip(all.get(r.id))}<small>${members(r.id).length} 个组件</small>${icon("arrow")}</span>${textOf(r.description) ? `<span class="region-description">${escape(r.description)}</span>` : ""}</button>${textOf(r.description) && claimRecord(description) ? authoredMeta(claimStatus(description), claimEvidence(description)) : ""}`;
-    }).join("");
+    }).join("") + scopeNote(a);
     const others = data.groups.filter((g) => !regionIds.has(g.id)).map((g) => `<button class="connection" data-action="scope" data-id="${escape(g.id)}"><i class="dot" style="--tone:${safeColor(g.color, groupColor(g))}"></i><span>${escape(g.label)}<small>不属于任何区域 · ${members(g.id).length} 个组件</small></span>${icon("arrow")}</button>`).join("");
     const startList = recordsOf(a.startHere).filter((s) => typeof s.nodeId === "string" && all.has(s.nodeId));
     const starts = startList.map((s) => `<div class="start-item"><button class="connection" data-action="authored-focus" data-id="${escape(s.nodeId)}" data-peek="${escape(s.nodeId)}">${icon(kindIcon(nodes.get(s.nodeId)))}<span>${escape(label(s.nodeId))}<small>${escape(all.get(s.nodeId).path || "")}</small></span>${icon("arrow")}</button>${textOf(s.reason) && claimRecord(s.claimId) ? authoredStatement(s.reason, claimStatus(s.claimId), claimEvidence(s.claimId)) : ""}</div>`).join("");
     const authoredFlows = (data.flows || []).filter(isAuthoredScenario);
-    const scenarios = authoredFlows.map((f) => `<button class="connection scenario-link" data-action="flow" data-id="${escape(f.id)}">${icon("flow")}<span>${escape(f.label || f.title || f.id)}${nameChip(f)}<small>${f.nodes.length} 步${textOf(f.description) ? ` · ${escape(f.description)}` : ""}</small></span>${scenarioStatus(f) ? interpretationBadge(scenarioStatus(f)) : ""}</button>`).join("");
-    const guide = (data.documents || []).find((d) => d.id === "auth_overview");
+    const scenarios = authoredFlows.map((f) => `<button class="connection scenario-link" data-action="flow" data-id="${escape(f.id)}">${icon("flow")}<span>${escape(f.label || f.title || f.id)}${nameChip(f)}<small>${f.nodes.length} 步${textOf(f.description) ? ` · ${escape(f.description)}` : ""}</small></span>${scenarioStatus(f) ? interpretationBadge(scenarioStatus(f)) : ""}</button>${guideButton(f)}`).join("");
     const purpose = graded(brief.purpose);
     // The title is authored only when orientation wrote it; otherwise it is the folder name.
     const authoredTitle = textOf(a.accepted?.orientation?.brief?.title);
     const title = textOf(brief.title) || data.meta?.title || "";
     const host = isRecord(a.host) ? a.host : {};
     const footer = `解读由 ${escape(textOf(host.authorIdentity) || "作者宿主")} 撰写${anyVerdict() && textOf(host.verifierIdentity) ? `，由 ${escape(host.verifierIdentity)} 独立核验` : "，没有经过独立核验"}；没有经过人工审阅。解析得到的结构与关系不受解读影响。`;
-    return `<div class="inspector-top"><div class="eyebrow">阅读导引 · 代理解读</div></div><div class="inspector-content orientation-panel"><h2 class="empty-title">${escape(title)}</h2>${authoredTitle && authoredTitle === title ? '<span class="name-chip" title="项目标题由作者宿主拟定，不是解析得到的事实，也不经核验。">代理命名</span>' : ""}${orientationAuthored() ? "" : '<p class="micro">这次没有产出区域或项目简介：下面只列出解析得到的结构。</p>'}${purpose}${coverageSummary(a)}${section("能做什么", statements(brief.capabilities), recordsOf(brief.capabilities).length)}${section("输入", statements(brief.inputs), recordsOf(brief.inputs).length)}${section("输出", statements(brief.outputs), recordsOf(brief.outputs).length)}${section("边界", statements(brief.boundary), recordsOf(brief.boundary).length)}${textOf(brief.audience) && authoredTitle ? section("适合谁读", `<div class="authored-statement"><p class="detail-text">${escape(brief.audience)}</p>${authoredMeta(null)}</div>`) : ""}${section("系统区域", regions + others, regionList.length)}${section("从这里开始", starts, startList.length)}${section("场景", scenarios, authoredFlows.length)}<div class="orientation-actions">${guide ? `<button class="btn" data-action="document" data-id="auth_overview">${icon("document")}${escape(guide.title)}</button>` : ""}<button class="btn" data-action="legend">${icon("info")}颜色与形状图例</button></div><p class="micro">${footer}</p></div>`;
+    return `<div class="inspector-top"><div class="eyebrow">阅读导引 · 代理解读</div></div><div class="inspector-content orientation-panel"><h2 class="empty-title">${escape(title)}</h2>${authoredTitle && authoredTitle === title ? '<span class="name-chip" title="项目标题由作者宿主拟定，不是解析得到的事实，也不经核验。">代理命名</span>' : ""}${orientationAuthored() ? "" : '<p class="micro">这次没有产出区域或项目简介：下面只列出解析得到的结构。</p>'}${purpose}${coverageSummary(a)}${section("能做什么", statements(brief.capabilities), recordsOf(brief.capabilities).length)}${section("输入", statements(brief.inputs), recordsOf(brief.inputs).length)}${section("输出", statements(brief.outputs), recordsOf(brief.outputs).length)}${section("边界", statements(brief.boundary), recordsOf(brief.boundary).length)}${textOf(brief.audience) && authoredTitle ? section("适合谁读", `<div class="authored-statement"><p class="detail-text">${escape(brief.audience)}</p>${authoredMeta(null)}</div>`) : ""}${section("系统区域", regions + others, regionList.length)}${section("从这里开始", starts, startList.length)}${section("场景", scenarios, authoredFlows.length)}<div class="orientation-actions"><button class="btn" data-action="legend">${icon("info")}颜色与形状图例</button></div><p class="micro">${footer}</p></div>`;
   }
   /**
    * The evidence viewer: the real excerpt, its span and its source, plus a way into the
@@ -31727,7 +32093,7 @@ globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";
       return `<div class="detail-intro"><b>源码签名契约</b><p>已支持的声明形式保留源码参数与显式返回类型；缺少注解、当前不支持和部分提取分别记录。签名描述不是业务职责或运行时契约证明。</p></div>${ioBlock(n.sourceContract, n.inputs, n.outputs, false)}${evidenceBody(n)}`;
     }
     const curated = !generated();
-    return `<div class="detail-intro"><b>${n.functions?.length || 0} 个${generated() ? "符号 / 章节" : "函数 / 接口"}</b><p>${escape(data.meta?.functionNote || (generated() ? "自动分析对已支持的声明形式提取源码参数、显式返回类型及可识别的文档字符串。结果分别记录缺少注解、部分提取和不支持的情况。它们是源码签名事实，不等同于精选 Demo 中人工整理的职责、业务契约和端到端场景。" : "按职责、输入、输出阅读接口摘要。"))}</p></div>${(n.functions || []).map((f, i) => `<details class="function" ${i === 0 ? "open" : ""}><summary>${escape(f.qualifiedName || f.name)}</summary><div class="function-body">${escape(f.description || f.desc || "")}${f.nodeId && all.has(f.nodeId) ? `<button class="connection" data-action="select" data-id="${escape(f.nodeId)}">${icon("code")}<span>定位符号与关系</span>${icon("arrow")}</button>` : ""}${ioBlock(f.sourceContract, f.inputs, f.outputs, curated)}${(f.evidence || []).map(e => `<details class="evidence-card" open><summary>${escape(e.file)} · ${e.lineStart}–${e.lineEnd}${e.excerptTruncated ? " · 摘录截断" : ""}</summary>${evidenceLink(e)}<pre>${escape(e.excerpt)}</pre></details>`).join("")}</div></details>`).join("") || '<p class="empty-hint">暂无函数契约。</p>'}`;
+    return `<div class="detail-intro"><b>${n.functions?.length || 0} 个${generated() ? "符号 / 章节" : "函数 / 接口"}</b><p>${escape(data.meta?.functionNote || (generated() ? "自动分析对已支持的声明形式提取源码参数、显式返回类型及可识别的文档字符串。结果分别记录缺少注解、部分提取和不支持的情况。它们是源码签名事实，不等同于精选 Demo 中人工整理的职责、业务契约和端到端场景。" : "按职责、输入、输出阅读接口摘要。"))}</p></div>${(n.functions || []).map((f, i) => `<details class="function" ${i === 0 ? "open" : ""}><summary>${escape(f.qualifiedName || f.name)}</summary><div class="function-body">${escape(f.description || f.desc || "")}${f.nodeId && all.has(f.nodeId) ? `<button class="connection" data-action="select" data-id="${escape(f.nodeId)}">${icon("code")}<span>定位符号与关系</span>${icon("arrow")}</button>` : ""}${ioBlock(f.sourceContract || all.get(f.nodeId)?.sourceContract, f.inputs, f.outputs, curated)}${(f.evidence || []).map(e => `<details class="evidence-card" open><summary>${escape(e.file)} · ${e.lineStart}–${e.lineEnd}${e.excerptTruncated ? " · 摘录截断" : ""}</summary>${evidenceLink(e)}<pre>${escape(e.excerpt)}</pre></details>`).join("")}</div></details>`).join("") || '<p class="empty-hint">暂无函数契约。</p>'}`;
   }
   function renderLegend() {
     const counts = new Map();
@@ -32179,7 +32545,7 @@ globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";
    */
   function landOnGuide() {
     const f = landingGuide();
-    if (!f) return false;
+    if (!f) return landOnCore();
     const origin = JSON.parse(JSON.stringify(snapshotState()));
     delete origin.camera;
     delete origin.lastRelation;
@@ -32194,10 +32560,34 @@ globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";
     focusReadingNode();
     return true;
   }
+  /**
+   * An authored model opens inside its conceptual core: the region holding the focus the
+   * builder recorded (meta.defaultScope / defaultFocus / defaultOpen, checked by
+   * verify-authored-model), with that node selected and its containers open. A model whose
+   * authored layer is not shown, or whose fields name nothing here, keeps the system view.
+   */
+  function landOnCore() {
+    if (!orientationLanding()) return false;
+    const scope = data.meta?.defaultScope, focus = data.meta?.defaultFocus;
+    if (!containers.has(scope) || !all.has(focus)) return false;
+    Object.assign(state, {
+      scope, selected: focus, mode: "hierarchy", lens: "scope", flow: null, trace: null, step: 0,
+      relation: null, relationGroup: null, tab: "overview",
+      openContainers: listOf(data.meta.defaultOpen).filter((id) => containers.has(id)),
+    });
+    render();
+    focusReadingNode();
+    return true;
+  }
   function renderGuideNavigation() {
     const scenarios = (data.flows || []).filter(isAuthoredScenario);
     if (!scenarios.length) return sourceGuideNavigation(data.flows || []);
-    return scenarioNavigation(scenarios) + sourceGuideNavigation(data.flows.filter((f) => !isAuthoredScenario(f)));
+    const automatic = data.flows.filter((f) => !isAuthoredScenario(f));
+    if (!automatic.length) return scenarioNavigation(scenarios);
+    // Automatic guides never sit next to authored scenarios as equals: folded, and titled as
+    // parser output, unless the reader is inside one of them.
+    const open = automatic.some((f) => f.id === state.flow && state.mode === "flow");
+    return scenarioNavigation(scenarios) + `<details class="automatic-guides"${open ? " open" : ""}><summary>${icon("layers")}自动导览 · 解析生成，不是代理场景<span>${automatic.length}</span></summary>${sourceGuideNavigation(automatic)}</details>`;
   }
   /** Authored task scenarios, listed ahead of the generated source guides. */
   function scenarioNavigation(scenarios) {
@@ -32574,7 +32964,7 @@ globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";
           chosen =
             state.relation &&
             r.edgeIds.some((id) => state.relation.edgeIds.includes(id));
-        return `<button class="relation-hub shape-${shape.key} ${relationActive(r, focus) ? "active" : ""} ${chosen ? "selected" : ""}" style="left:${h.x}px;top:${h.y}px;width:${h.w}px;height:${h.h}px;${typeStyle(r.type)}" data-action="relation" data-id="${escape(r.id)}" data-relation-peek="${escape(r.id)}" aria-label="关系标注 ${escape(relationTitle(r))}，${escape(t.shortLabel)}，${shape.cardinality}，${r.edgeIds.length} 条边" title="${escape(shape.label)} · ${escape(t.label)} · ${escape(actionLabels(r.edges).join(" / "))}"><span class="hub-glyph">${icon(shape.icon)}</span><span class="hub-copy"><strong>${escape(relationTitle(r))}</strong></span>${r.edgeIds.length > 1 ? `<b class="member-count">${r.edgeIds.length}</b>` : ""}</button>`;
+        return `<button class="relation-hub shape-${shape.key} ${relationActive(r, focus) ? "active" : ""} ${chosen ? "selected" : ""}" style="left:${h.x}px;top:${h.y}px;width:${h.w}px;height:${h.h}px;${typeStyle(r.type)}" data-action="relation" data-id="${escape(r.id)}" data-relation-peek="${escape(r.id)}" aria-label="关系标注 ${escape(relationTitle(r))}，${escape(t.shortLabel)}，${shape.cardinality}，${r.edgeIds.length} 条边" title="${escape(shape.label)} · ${escape(t.label)} · ${escape(actionLabels(r.edges).join(" / "))}"><span class="hub-glyph">${icon(shape.icon)}</span><span class="hub-copy"><strong>${escape(relationTitle(r))}</strong>${(() => { const roles = [...new Set(r.edges.map(authoredLabelOf).filter(Boolean))]; return roles.length === 1 ? `<small class="hub-role" title="作用标签由作者宿主拟定，不是解析得到的事实，也不经核验。">代理命名 · ${escape(roles[0])}</small>` : ""; })()}</span>${r.edgeIds.length > 1 ? `<b class="member-count">${r.edgeIds.length}</b>` : ""}</button>`;
       })
       .join("");
     const nodeHTML = layout.items
@@ -32590,7 +32980,7 @@ globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";
         // A container card shows only its name (never graded: a name is not a claim); an object
         // card shows its one-line text, graded by that field's own claim.
         const markStatus = isContainer ? null : fieldGrade(n, shownTextField(n));
-        return `<div class="node-wrap kind-${t.key} ${isContainer ? "is-boundary" : ""}" style="left:${p.x}px;top:${p.y}px;width:${p.w}px;height:${p.h}px;--tone:${groupColor(n)};--ink:${semanticInk(t)}"><button class="graph-node ${selected ? "selected" : ""}" style="width:${p.w}px;height:${p.h}px" data-action="select" data-id="${escape(n.id)}" data-peek="${escape(n.id)}" aria-label="${escape(n.label)}${isContainer ? "，双击或按右方向键展开" : ""}"><span class="node-top"><span class="node-icon">${icon(t.icon)}</span><span><span class="node-label">${escape(n.label)}</span><span class="node-kind">${escape(t.label)} · L${CodeLoomLevels.depth(data, n.id)}${markStatus ? `<i class="interpretation-mark" data-status="${markStatus}" title="卡片上的说明文字是代理解读 · ${INTERPRETATION_GRADES[markStatus]}">代理解读</i>` : ""}${nameChip(n)}${splitFileOf(n) ? `<i class="split-file-mark" title="${escape(`所在文件 ${n.path} 已按职责拆分到多个区域；这里没有文件边界`)}">${escape(n.path.split("/").at(-1))}</i>` : ""}</span></span></span><span class="node-description">${isContainer ? `${kids.length} 个直接子项 · ${memberIds.length} 个组件` : escape(n.summary || n.description || "")}</span>${
+        return `<div class="node-wrap kind-${t.key} ${isContainer ? "is-boundary" : ""}" style="left:${p.x}px;top:${p.y}px;width:${p.w}px;height:${p.h}px;--tone:${groupColor(n)};--ink:${semanticInk(t)}"><button class="graph-node ${selected ? "selected" : ""}" style="width:${p.w}px;height:${p.h}px" data-action="select" data-id="${escape(n.id)}" data-peek="${escape(n.id)}" aria-label="${escape(n.label)}${isContainer ? "，双击或按右方向键展开" : ""}"><span class="node-top"><span class="node-icon">${icon(t.icon)}</span><span><span class="node-label">${escape(n.label)}</span><span class="node-kind">${escape(t.label)} · L${CodeLoomLevels.depth(data, n.id)}${markStatus ? `<i class="interpretation-mark" data-status="${markStatus}" title="卡片上的说明文字是代理解读 · ${INTERPRETATION_GRADES[markStatus]}">代理解读</i>` : ""}${nameChip(n)}${roleChip(n)}${splitFileOf(n) ? `<i class="split-file-mark" title="${escape(`所在文件 ${n.path} 已按职责拆分到多个区域；这里没有文件边界`)}">${escape(n.path.split("/").at(-1))}</i>` : ""}</span></span></span><span class="node-description">${isContainer ? `${kids.length} 个直接子项 · ${memberIds.length} 个组件` : escape(n.summary || n.description || "")}</span>${
           isContainer
             ? `<span class="child-preview">${kids
                 .slice(0, 2)
@@ -32996,11 +33386,11 @@ globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";
     const text = reasonClaim && claimRecord(reasonClaim) && textOf(e.description)
       ? authoredStatement(e.description, claimStatus(reasonClaim), claimEvidence(reasonClaim), textOf(e.derivedDescription))
       : e.description ? `<p>${escape(e.description)}</p>` : "";
-    return `<div class="edge-evidence-note"><span class="badge">${escape(kinds[e.evidenceStatus] || e.evidenceStatus || "作者整理")}</span>${text}</div>`;
+    return `<div class="edge-evidence-note"><span class="badge">${escape(kinds[e.evidenceStatus] || e.evidenceStatus || "作者整理")}</span>${roleChip(e)}${text}</div>`;
   }
   function rawEdgeCard(e) {
     if (!e) return "";
-    return `<button class="relation-member" data-action="raw-edge" data-id="${escape(e.id)}" style="${typeStyle(e.type)}"><small>${escape(e.id)} ${typeBadge(e.type)}</small><b>${escape(label(e.source))} <span class="inline-arrow">→</span> ${escape(label(e.target))}</b><span>${escape(e.label || e.type)}</span>${icon("chevron")}</button>`;
+    return `<button class="relation-member" data-action="raw-edge" data-id="${escape(e.id)}" style="${typeStyle(e.type)}"><small>${escape(e.id)} ${typeBadge(e.type)}</small><b>${escape(label(e.source))} <span class="inline-arrow">→</span> ${escape(label(e.target))}</b><span>${escape(e.label || e.type)}</span>${roleChip(e)}${icon("chevron")}</button>`;
   }
   const ROLE_LABELS = {
     input: "输入 / input", validator: "校验 / validator", artifact: "产物 / artifact",
@@ -33178,7 +33568,7 @@ globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";
   }
   function connection(e, incoming) {
     const id = incoming ? e.source : e.target;
-    return `<div class="connection-row" style="${typeStyle(e.type)}"><button class="connection" data-action="select" data-id="${escape(id)}" data-peek="${escape(id)}">${icon(kindIcon(nodes.get(id)))}<span>${escape(label(id))}<small>${escape(e.label || e.type)}</small></span>${icon("arrow")}</button><button class="edge-detail-button" data-action="raw-edge" data-id="${escape(e.id)}" aria-label="查看边 ${escape(e.id)}">${typeBadge(e.type)}<span>${escape(e.id)} ${icon("chevron")}</span></button></div>`;
+    return `<div class="connection-row" style="${typeStyle(e.type)}"><button class="connection" data-action="select" data-id="${escape(id)}" data-peek="${escape(id)}">${icon(kindIcon(nodes.get(id)))}<span>${escape(label(id))}<small>${escape(e.label || e.type)}</small>${roleChip(e)}</span>${icon("arrow")}</button><button class="edge-detail-button" data-action="raw-edge" data-id="${escape(e.id)}" aria-label="查看边 ${escape(e.id)}">${typeBadge(e.type)}<span>${escape(e.id)} ${icon("chevron")}</span></button></div>`;
   }
   function nodeHierarchy(n) {
     return `${evidenceOrigin?.model === data ? `<button class="return-relation" data-action="evidence-return">${icon("back")}返回依据前的位置</button>` : ""}${state.lastRelation ? `<button class="return-relation" data-action="return-relation">${icon("back")}返回刚才的关系 (${state.lastRelation.edgeIds.length})</button>` : ""}<div class="inspector-breadcrumbs"><button data-action="home">System</button>${crumbIds(
@@ -33245,7 +33635,7 @@ globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";
     return `<div class="review-block">${record}${rows ? `<ul class="review-history">${rows}</ul>` : ""}${actions}</div>`;
   }
   /** Per-dimension review requirement from evaluateDepth: what a person still has to check. */
-  function reviewStatus(model = data) {
+  function reviewStatus(model = factsModel()) {
     if (!Claims() || !isRecord(model?.analysis)) return null;
     try { return Claims().evaluateDepth(model); } catch { return null; }
   }
@@ -33314,7 +33704,7 @@ globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";
     }
     const edges = [...inc.incoming, ...inc.outgoing],
       ctx = selectionContext();
-    return `<div data-section="identity"><div class="object-tags">${categoryBadge(n)}<span class="badge">${isContainer ? `${members(n.id).length} 个组件` : n.sourceRole === "symbol" ? "源码声明" : `${n.functions?.length || 0} 个${generated() ? "符号" : "函数"}`}</span></div></div><div data-section="responsibility"><div class="section-label">职责 / RESPONSIBILITY</div>${interp(n) ? authoredResponsibility(n) : `<p class="detail-text">${escape(n.description || n.summary || "未提供职责说明。")}</p>`}</div><div data-section="interface"><div class="section-label" style="margin-top:20px">${isContainer ? "结构入口" : "接口与位置"}</div><button class="connection" data-action="tab" data-value="contracts">${icon(isContainer ? "layers" : "code")}<span>${isContainer ? `查看 ${immediateChildren(n.id).length} 个直接子项` : n.sourceRole === "symbol" ? "查看声明与源码依据" : `查看 ${n.functions?.length || 0} 个${generated() ? "声明 / 章节" : "函数契约"}`}<small>${isContainer ? "继续逐层深入" : generated() ? "精确行号、源文件与静态关系" : "职责、输入、输出分别呈现"}</small></span>${icon("arrow")}</button></div><div data-section="relations"><div class="section-label">连接构成 <span>${edges.length} 条原始边 · 全类型</span></div>${typeBreakdown(edges)}</div><div data-section="position">${contextSummary(ctx)}${n.path ? `<details class="location-details"><summary>${icon("document")}源码位置</summary><code>${escape(n.path)}</code></details>` : ""}${n.parentId || n.group ? `<button class="btn parent-button" data-action="scope" data-id="${escape(n.parentId || n.group)}">${icon("layers")}进入父模块 ${escape(label(n.parentId || n.group))}</button>` : ""}</div><div data-section="evidence">${sourceDiagnostics(n)}</div>`;
+    return `<div data-section="identity"><div class="object-tags">${categoryBadge(n)}<span class="badge">${isContainer ? `${members(n.id).length} 个组件` : n.sourceRole === "symbol" ? "源码声明" : `${n.functions?.length || 0} 个${generated() ? "符号" : "函数"}`}</span></div></div><div data-section="responsibility"><div class="section-label">职责 / RESPONSIBILITY</div>${roleChip(n)}${interp(n) ? authoredResponsibility(n) : `<p class="detail-text">${escape(n.description || n.summary || "未提供职责说明。")}</p>`}${sourceDocstringBlock(n)}</div><div data-section="interface"><div class="section-label" style="margin-top:20px">${isContainer ? "结构入口" : "接口与位置"}</div><button class="connection" data-action="tab" data-value="contracts">${icon(isContainer ? "layers" : "code")}<span>${isContainer ? `查看 ${immediateChildren(n.id).length} 个直接子项` : n.sourceRole === "symbol" ? "查看声明与源码依据" : `查看 ${n.functions?.length || 0} 个${generated() ? "声明 / 章节" : "函数契约"}`}<small>${isContainer ? "继续逐层深入" : generated() ? "精确行号、源文件与静态关系" : "职责、输入、输出分别呈现"}</small></span>${icon("arrow")}</button></div><div data-section="relations"><div class="section-label">连接构成 <span>${edges.length} 条原始边 · 全类型</span></div>${typeBreakdown(edges)}</div><div data-section="position">${contextSummary(ctx)}${n.path ? `<details class="location-details"><summary>${icon("document")}源码位置</summary><code>${escape(n.path)}</code></details>` : ""}${n.parentId || n.group ? `<button class="btn parent-button" data-action="scope" data-id="${escape(n.parentId || n.group)}">${icon("layers")}进入父模块 ${escape(label(n.parentId || n.group))}</button>` : ""}</div><div data-section="evidence">${sourceDiagnostics(n)}</div>`;
   }
   /**
    * The projected role of an object or region, field by field. Each field shows its own claim's
@@ -33338,6 +33728,13 @@ globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";
     }
     if (iface && textOf(n.interface))
       parts.push(`<div class="section-label" style="margin-top:16px">接口含义 / INTERFACE</div>${authoredStatement(n.interface, iface.status, iface.evidence)}`);
+    // Authored inputs/outputs: agent interpretation read from the interface claim, graded by
+    // it; the parser's parameters and returns stay in the contracts tab (源码签名契约).
+    const authoredIo = [["authoredInputs", "输入"], ["authoredOutputs", "输出"]]
+      .map(([name, label]) => ({ label, grade: field(name), items: (Array.isArray(n[name]) ? n[name] : []).filter((item) => textOf(item)) }))
+      .filter((entry) => entry.grade && entry.items.length);
+    if (authoredIo.length)
+      parts.push(`<div class="section-label" style="margin-top:16px">代理整理的输入输出 / AUTHORED IO</div>${authoredIo.map((entry) => authoredStatement(`${entry.label}：${entry.items.join("；")}`, entry.grade.status, entry.grade.evidence)).join("")}`);
     const region = recordsOf(authoring()?.regions).find((r) => r.id === n.id);
     const rationale = region && textOf(region.key) ? `cl_auth_region_${region.key}_members` : null;
     if (rationale && textOf(region.rationale) && claimRecord(rationale))
@@ -34011,6 +34408,8 @@ globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";
             ...(edge || step.edgeId ? [{ text: ownValue(RESOLUTION_LABELS, resolution) || resolution || "分析记录中没有这条关系", tone: unproven ? "candidate" : "proven" }] : []),
             ...(unproven ? [{ text: "未证实调用", tone: "unproven" }] : []),
           ];
+      // Agent-named role labels of the step's object and relation; names, never graded.
+      for (const item of [all.get(id), edge]) if (authoredLabelOf(item)) badges.push({ text: `代理命名 · ${authoredLabelOf(item)}`, tone: "name" });
       const reasonText = textOf(step.reason) && status ? step.reason : "";
       return {
         counter,
@@ -34115,16 +34514,17 @@ globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";
        and a footnote states what the marks mean. */
     const exportGrade = (n, textShown) => !authoring() || !n || !textShown ? null
       : fieldGrade(n, containers.has(n.id) ? "description" : "summary");
-    const nameMark = (n) => (nameChip(n) ? (authoring() ? "代理命名" : n.sourceRole === "authored-region" ? "代理划分" : "代理场景") : "");
+    const nameMark = (n) => [nameChip(n) ? (authoring() ? "代理命名" : n.sourceRole === "authored-region" ? "代理划分" : "代理场景") : "", authoredLabelOf(n) ? `代理命名 · ${authoredLabelOf(n)}` : ""].filter(Boolean).join(" · ");
+    const hubRole = (relation) => { const roles = [...new Set(relation.edges.map(authoredLabelOf).filter(Boolean))]; return roles.length === 1 ? roles[0] : ""; };
     const itemGrades = new Map(layout.items.map((p) => [p.n.id, exportGrade(p.n, Boolean(p.n.summary))]));
-    const named = [...layout.items.map((p) => p.n), ...layout.bounds.map((b) => all.get(b.id))].some((n) => nameMark(n));
+    const named = [...layout.items.map((p) => p.n), ...layout.bounds.map((b) => all.get(b.id))].some((n) => nameMark(n)) || layout.hubs.some((h) => hubRole(h.relation));
     const vocabulary = authoring()?.gradeVocabulary;
     const footnoteLines = [
       ...([...itemGrades.values()].some(Boolean)
         ? [`代理解读：${textOf(ownValue(vocabulary, "agent-interpretation")) || "由作者宿主依据引用的源码行撰写，是解读，不是解析得到的事实。"}`,
            ...["verified", "partly-verified", "unverified"].map((grade) => `代理解读 · ${INTERPRETATION_GRADES[grade]}：${textOf(ownValue(vocabulary, grade))}`)]
         : []),
-      ...(named ? [authoring() ? "代理命名：区域与场景的名称由作者宿主拟定，不是解析得到的事实，也不经核验。" : "代理划分 / 代理场景：由作者宿主划分或编排；其解读层格式不正确，未被采信，解读文字没有导出。"] : []),
+      ...(named ? [authoring() ? "代理命名：区域与场景的名称、对象与关系的作用标签由作者宿主拟定，不是解析得到的事实，也不经核验。" : "代理划分 / 代理场景：由作者宿主划分或编排；其解读层格式不正确，未被采信，解读文字没有导出。"] : []),
     ];
     const footnoteHeight = footnoteLines.length ? 20 + footnoteLines.length * 15 : 0;
     const footnote = footnoteLines.map((line, index) => `<text x="30" y="${layout.height + 118 + index * 15}" font-size="10" fill="${muted}">${escape(line)}</text>`).join("");
@@ -34145,7 +34545,7 @@ globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";
       .map((h) => {
         const t = CodeLoomSemantics.relation(h.relation.type),
           shape = relationTopology(h.relation.edges);
-        return `<g><title>${escape(t.label)} · ${shape.cardinality} · ${h.relation.edgeIds.length} 条</title><rect x="${h.x}" y="${h.y}" width="${h.w}" height="${h.h}" rx="17" fill="${panel}" stroke="${semanticInk(t)}"/><text x="${h.x + 9}" y="${h.y + h.h / 2 + 3}" font-size="10" fill="${semanticInk(t)}">↗ ${escape(relationTitle(h.relation).slice(0, 12))}${h.relation.edgeIds.length > 1 ? ` · ${h.relation.edgeIds.length}` : ""}</text></g>`;
+        return `<g><title>${escape(t.label)} · ${shape.cardinality} · ${h.relation.edgeIds.length} 条</title><rect x="${h.x}" y="${h.y}" width="${h.w}" height="${h.h}" rx="17" fill="${panel}" stroke="${semanticInk(t)}"/><text x="${h.x + 9}" y="${h.y + h.h / 2 + 3}" font-size="10" fill="${semanticInk(t)}">↗ ${escape(relationTitle(h.relation).slice(0, 12))}${h.relation.edgeIds.length > 1 ? ` · ${h.relation.edgeIds.length}` : ""}</text>${hubRole(h.relation) ? `<text data-interpretation="name" x="${h.x + 9}" y="${h.y + h.h + 11}" font-size="9" fill="#7a5bc4">代理命名 · ${escape(hubRole(h.relation))}</text>` : ""}</g>`;
       })
       .join("")}${layout.items
       .map((p) => {
@@ -34163,7 +34563,7 @@ globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";
     if (!doc) return;
     modal(
       doc.title,
-      `<p>${isAgentGuide(doc) && !doc.path ? "" : `<code>${escape(doc.path)}</code> · `}${isAgentGuide(doc) ? `${interpretationBadge(null)} 代理撰写的阅读指南：每条陈述后附引用的源码行，未经人工审阅` : doc.status === "proposal" ? "拟议方案，未核验实施" : generated() ? "自动提取的来源文本" : "示例阅读指南"}</p><pre>${escape(doc.content)}</pre>`,
+      `<p>${isAgentGuide(doc) && !doc.path ? "" : `<code>${escape(doc.path)}</code> · `}${isAgentGuide(doc) ? `${interpretationBadge(null)} 代理撰写的阅读导览：由这个场景已保留的解读按固定模板编排，未经人工审阅；每条解读的核验分级与引用在场景步骤和证据面板里` : doc.status === "proposal" ? "拟议方案，未核验实施" : generated() ? "自动提取的来源文本" : "示例阅读指南"}</p><pre>${escape(doc.content)}</pre>${isAgentGuide(doc) && listOf(doc.evidenceIds).length ? `<div class="section-label">源码</div><div class="authored-meta">${listOf(doc.evidenceIds).filter((id) => typeof id === "string").map(citationChip).join("")}</div>` : ""}`,
     );
   }
   const actions = {
@@ -35048,8 +35448,8 @@ globalThis.SKYLENSE_SYNTAX_VERSION = "skylense-ast-8ace70e6386f5d434ecf1fe2";
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(fitCanvas, 120);
   });
-  // A generated model opened without a link starts on its top-ranked guide; curated demos and
-  // explicit links keep their own landing.
+  // A generated model opened without a link starts on its top-ranked guide, an authored one
+  // inside its core; curated demos and explicit links keep their own landing.
   if (bootViewRequested || !landOnGuide()) render();
   queueMicrotask(initializeLocalSource);
   // Read-only inspection API used by local validation, without exposing mutable UI state.

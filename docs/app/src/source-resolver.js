@@ -25,11 +25,14 @@
   }
   function create(files, { joinRelative, choose }) {
     const dirname = p => p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "";
-    const configs = new Map(), packages = [], goModules = [];
+    const configs = new Map(), packages = [], goModules = [], pythonRoots = new Set();
     for (const [path, file] of files) {
       if (/(?:^|\/)(?:tsconfig|jsconfig)(?:\.[^/]*)?\.json$/.test(path)) configs.set(path, json(file.text));
       if (/(?:^|\/)package\.json$/.test(path)) { const value = json(file.text); if (value?.name) packages.push({ dir: dirname(path), value }); }
       if (/(?:^|\/)go\.mod$/.test(path)) { const name = /^\s*module\s+([^\s/][^\s]*)/m.exec(file.text || "")?.[1]; if (name) goModules.push({ dir: dirname(path), name }); }
+      // A Python distribution root below the snapshot root: a directory with its own build
+      // manifest. Its import roots are the directory and its src/ layout.
+      if (/(?:^|\/)(?:pyproject\.toml|setup\.py|setup\.cfg)$/.test(path) && path.includes("/")) pythonRoots.add(dirname(path));
     }
     const extensions = [".ts", ".tsx", ".d.ts", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs", ".json", ".vue", ".svelte"];
     function jsCandidates(path) {
@@ -225,7 +228,8 @@
       // Otherwise its failure is authoritative once the compiler is available.
       if (typescript && !/\.(?![cm]?[jt]sx?$)[^./]+$/.test(spec)) {
         if (alias) return aliasMiss(alias);
-        return spec.startsWith(".") || spec.startsWith("/") || spec.startsWith("#") || /^[@~]\//.test(spec) ? unresolved("The included project configuration does not resolve this source module") : external(spec);
+        if (spec.startsWith(".") || spec.startsWith("/") || spec.startsWith("#") || /^[@~]\//.test(spec)) return unresolved("The included project configuration does not resolve this source module");
+        return jsWorkspacePackage(path, spec) || external(spec);
       }
       if (spec.startsWith(".")) return chooseOrdered(jsCandidates(joinRelative(dir, spec)));
       if (alias) {
@@ -236,12 +240,55 @@
       for (const { dir: packageDir, value } of packages) {
         if (spec !== value.name && !spec.startsWith(value.name + "/")) continue;
         const sub = spec.slice(value.name.length).replace(/^\//, "");
-        const exportValue = typeof value.exports === "string" ? !sub && value.exports : value.exports?.[sub ? "./" + sub : "."];
-        const targets = typeof exportValue === "string" ? [exportValue] : exportValue && typeof exportValue === "object" ? Object.values(exportValue).filter(v => typeof v === "string") : sub ? [sub] : [value.source, value.module, value.main, "index"].filter(v => typeof v === "string");
-        return chooseOrdered(targets.flatMap(t => jsCandidates(joinRelative(packageDir, t))));
+        return chooseOrdered(packageEntries(value, sub).flatMap(t => jsCandidates(joinRelative(packageDir, t))));
       }
       if (spec.startsWith("/") || spec.startsWith("#") || /^[@~]\//.test(spec)) return unresolved("Unconfigured local path alias");
       return external(spec);
+    }
+    /** The entry files a package.json names for `sub` (empty: the package itself). */
+    function packageEntries(value, sub) {
+      const exportValue = typeof value.exports === "string" ? !sub && value.exports : value.exports?.[sub ? "./" + sub : "."];
+      return typeof exportValue === "string" ? [exportValue] : exportValue && typeof exportValue === "object" ? Object.values(exportValue).filter(v => typeof v === "string") : sub ? [sub] : [value.source, value.module, value.main, "index"].filter(v => typeof v === "string");
+    }
+    /* A bare JS/TS specifier that names a package.json below the snapshot root: a
+       workspace package of a monorepo. A package manager links it into node_modules,
+       which is never read, so whether that copy is the one the build uses is not
+       evaluated: each source file it reaches is a candidate, never a resolved relation. */
+    function jsWorkspacePackage(path, spec) {
+      const found = new Set(), dirs = [];
+      for (const { dir, value } of packages) {
+        if (!dir || (spec !== value.name && !spec.startsWith(value.name + "/"))) continue;
+        const sub = spec.slice(value.name.length).replace(/^\//, "");
+        // A built entry (dist/…) is not in the source tree; its source layout stands in.
+        const entries = [...packageEntries(value, sub), ...(sub ? ["src/" + sub] : ["src/index", "index"])];
+        const target = entries.flatMap(t => jsCandidates(joinRelative(dir, t))).find(p => p && files.has(p));
+        if (target) { found.add(target); dirs.push(dir); }
+      }
+      const targets = [...found].filter(target => target !== path).sort();
+      if (!targets.length || targets.length > SIBLING_TARGETS) return null;
+      return { targets, status: "candidate", engine: "source-resolver", rule: "js-workspace-package", reasonCode: "sibling-package",
+        reason: `${spec} is the name of the package.json in ${dirs.sort().join(" and ")} inside the snapshot; a package manager links it through node_modules, which is not read, so which copy the build uses is not evaluated` };
+    }
+    /* An absolute Python import that no file at the snapshot root provides, but that a
+       distribution root inside the snapshot (a directory with its own pyproject.toml,
+       setup.py or setup.cfg) does: a monorepo's sibling package, or a package whose source
+       sits below the root. Whether that distribution is the one installed is not evaluated,
+       so every match is a candidate, never a resolved relation. */
+    const SIBLING_TARGETS = 4;
+    function pythonSiblingPackage(path, module, names) {
+      if (!pythonRoots.size || !module) return null;
+      const stems = [...pythonRoots].sort().flatMap(dir => [dir, dir + "/src"]).map(prefix => prefix + "/" + module.replace(/\./g, "/"));
+      const found = new Set();
+      for (const stem of stems) {
+        const direct = [stem + ".py", stem + "/__init__.py"].filter(p => files.has(p));
+        for (const target of direct) found.add(target);
+        if (direct.length) continue;
+        for (const name of names || []) if (name !== "*") for (const sub of [stem + "/" + name + ".py", stem + "/" + name + "/__init__.py"]) if (files.has(sub)) found.add(sub);
+      }
+      const targets = [...found].filter(target => target !== path).sort();
+      if (!targets.length || targets.length > SIBLING_TARGETS) return null;
+      return { targets, status: "candidate", engine: "source-resolver", rule: "python-sibling-package-root", reasonCode: "sibling-package",
+        reason: `${module} is not provided at the snapshot root; ${targets.length === 1 ? "a package" : `${targets.length} packages`} below a distribution root inside the snapshot provide${targets.length === 1 ? "s" : ""} it, and which distribution is installed is not evaluated` };
     }
     return function resolve(path, fact) {
       const spec = fact.specifier || "", form = fact.form || "", dir = dirname(path);
@@ -271,6 +318,7 @@
         const sub = form === "python-from" && !dynamic ? (fact.names || []).filter(n => n !== "*" && !bindings.has(n)).flatMap(name => stems.flatMap(stem => { const base = (stem ? stem + "/" : "") + name; return [base + ".py", base + "/__init__.py"]; })).filter(p => files.has(p)) : [];
         if (direct.targets.length || sub.length) return { targets: [...new Set([...direct.targets, ...sub])] };
         if (direct.reason === "Ambiguous local resolution") return direct;
+        if (!spec.startsWith(".")) { const sibling = pythonSiblingPackage(path, module, form === "python-from" ? fact.names : []); if (sibling) return sibling; }
         return spec.startsWith(".") ? direct : external(spec);
       }
       if (form === "go-import") {

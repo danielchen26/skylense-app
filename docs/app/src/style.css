@@ -4033,3 +4033,14 @@ body.flow-reduced .flow-particle {
 .modal-content .review-error { color: #a33a2b; font-weight: 600; margin-bottom: 8px; }
 .modal-content .review-error:empty { display: none; }
 :is(html[data-theme="midnight"], html[data-theme="graphite"], html[data-theme="aurora"]) .review-badge[data-review="invalidated"] { background: repeating-linear-gradient(135deg, #3a2a10 0 4px, var(--panel) 4px 8px); color: #f0b45a; --review: #f0b45a; }
+/* Agent-named role labels of objects and relations (names, never graded). */
+.role-label { display: inline-flex; align-items: baseline; gap: 4px; margin-left: 5px; padding: 0 5px; border: 1px dashed var(--line); border-radius: 4px; background: var(--soft); color: var(--muted); font-size: 9px; font-weight: 500; font-style: normal; line-height: 1.6; white-space: nowrap; vertical-align: middle; cursor: help; }
+.role-label small { font-size: 9px; opacity: .8; white-space: normal; }
+[data-section="responsibility"] > .role-label { margin: 0 0 6px; }
+.hub-copy .hub-role { display: block; font-size: 9px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Automatic guides on an authored model: folded below the authored scenarios. */
+.automatic-guides { margin-top: 8px; }
+.automatic-guides > summary { display: flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: 11px; color: var(--muted); cursor: pointer; }
+.automatic-guides > summary svg { width: 12px; height: 12px; flex: none; }
+.automatic-guides > summary span { margin-left: auto; }
+.guide-link { margin: 6px 0 4px; }

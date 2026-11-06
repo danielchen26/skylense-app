@@ -522,7 +522,9 @@
     const relations = analysis.relations || [];
     const nodes = model.nodes || [];
     const withSummary = nodes.filter(node => node.summary && !/static source declaration|Source hierarchy/i.test(node.summary));
-    const withContracts = nodes.filter(node => (node.functions || []).some(fn => (fn.inputs || []).length || (fn.outputs || []).length || fn.sourceContract));
+    // A declaration's sourceContract sits on its symbol node; functions[] reaches it by nodeId.
+    const nodeById = new Map(nodes.map(node => [node.id, node]));
+    const withContracts = nodes.filter(node => (node.functions || []).some(fn => (fn.inputs || []).length || (fn.outputs || []).length || fn.sourceContract || nodeById.get(fn.nodeId)?.sourceContract));
     const dims = [];
     const pass = (id, name, ok, evidence, note) => {
       const row = dimension(id, name, ok ? "pass" : "fail", evidence, note);

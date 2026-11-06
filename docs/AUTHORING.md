@@ -137,14 +137,28 @@ cites stay as they were in `accepted`; what the builder added is recorded separa
     "label": "≤ 16",
     "description": { "text": "≤ 200", "cite": [] },
     "rationale":   { "text": "≤ 200", "cite": [] },
-    "paths": ["snapshot directory or file path"]
+    "paths": ["core directory or file path", "<file>::<qualified name>", "<file>::L<start>-<end>"]
   }],
+  "scope": {
+    "focus": { "path": "file path", "symbol": "qualified name of the central declaration, or empty" },
+    "outside": { "text": "≤ 200 (optional)", "cite": [] }
+  },
   "startHere":   [{ "path": "file path", "symbol": "optional qualified name", "reason": { "text": "≤ 200", "cite": [] } }],
   "entrypoints": [{ "path": "file path", "symbol": "optional", "reason": { "text": "≤ 200", "cite": [] } }]
 }
 ```
-Counts: capabilities 2–6; inputs, outputs 0–6; boundary 0–5; regions 3–8; startHere 1–5;
-entrypoints 0–6.
+Counts: capabilities 2–6; inputs, outputs 0–6; boundary 0–5; regions 3–6; startHere 1–5;
+entrypoints 0–6. `scope.focus` must name a node inside a region (`UNKNOWN_NODE`,
+`UNKNOWN_REGION`); `scope.outside` is validated like any cited text.
+
+The orientation context puts the conceptual core first: files under examples, samples,
+demos, tutorials, notebooks, benchmarks, docs sites, CI and tooling directories are
+ranked after the rest (tests, vendored and generated files last) in the excerpt budget;
+entry candidates there are listed last and marked `[peripheral]`; documents there are
+excerpted only from what the code leaves. Nothing is hidden: every file stays in the file
+list. The README purpose statement is shown as plain text (badges, images, HTML tags and
+link targets removed, `plainPurpose`); when nothing is left, the README's first prose
+paragraph stands in, cited by its own lines (`readmeLead`).
 
 **objects** (one batch of ≤ 12 node ids chosen by the orchestrator)
 ```json
@@ -152,11 +166,31 @@ entrypoints 0–6.
     "nodeId": "id from the batch",
     "summary": "≤ 80",
     "role":      { "text": "≤ 400", "cite": [] },
-    "interface": { "text": "≤ 300", "cite": [] }
+    "functions": ["≤ 3 qualified names in the object's file, or <file>::<qualified name>"],
+    "interface": { "text": "≤ 300", "inputs": ["≤ 4 × ≤ 40"], "outputs": ["≤ 3 × ≤ 40"], "cite": [] }
 }] }
 ```
 `interface` is omitted for nodes whose profile forbids a function interface (document,
-config, asset, external, container).
+config, asset, external, container). `inputs` and `outputs` are short plain-language
+phrases (outputs from the return and yield lines the context lists as `results at`); they
+carry no cite of their own and are part of the interface claim: its text is
+`<text> | <inputs joined by "; "> → <outputs joined by "; ">` (`—` for an empty side), so the
+verifier judges them with the interface cites and every surface shows them with its grade.
+`functions` groups 1–3 other code declarations that carry out one step with the object; each
+is kept, as a node id, only when the role cites a range holding its def line
+(`CITE_MISSING` otherwise, `UNKNOWN_NODE` for a name that is no other declaration). The
+grouping is stored in `meta.authoring.accepted` only; the independent checker repeats the
+def-line rule.
+
+Each batch entry's context starts the declaration's excerpt at its own def line (at most 120
+lines): declarations take their excerpt before any file of the batch, so a file excerpt cut by
+the budget never hides a declaration's own definition. A class or function lists the
+declarations inside it, a declaration its own `return`/`yield` lines (`results at`), and an
+outgoing neighbour the line where it is defined. Public members' def lines are kept when the
+excerpt is shortened (to the budget or to the prompt cap) and are added after it when they lie
+past its end; a gap is named in the block. `results at` and the member list are decided after
+that fit: a result line the block does not print is not listed, and a member whose def line
+it does not print is marked `(own entry in this batch)` or `(def line not shown)`.
 
 **relations**
 ```json
@@ -168,6 +202,10 @@ config, asset, external, container).
 }
 ```
 A region relation needs ≥ 1 backing relation whose endpoints lie in `from` and `to`.
+
+The relations context lists cross-region relations first, then key edges inside regions:
+code sources before test sources, nearest a key object first, at most 3 edges per target, so
+one much-used node cannot fill the list.
 
 **scenarios**
 ```json
@@ -208,6 +246,52 @@ judged again in the same batch, unless it was itself revised or dropped. If the 
 revision stands, the summary gets the new cites and the new verdict, and its builder-added
 cites lapse.
 
+## Verification
+
+The verifier judges each claim against only the excerpts given inside that claim
+(`supported`, `partial`, `unsupported`). What it is shown, and the rules it applies:
+
+- **Subject.** Each claim carries a `subject:` line. An object is given by kind, name and
+  `path:start-end`, a region by its member paths (the first 24, then a count), a scenario step
+  by its node and the edge it follows (kind and both endpoints, or "a narrative step on no
+  edge"), and an edge reason by the edge's endpoints. The verifier grades as `partial` any text
+  that describes a different object than the subject, such as a callee described from its
+  caller's lines. It does the same for a region description that leaves listed members
+  unaccounted for.
+- **Whole declaration.** For the summary, role or interface of a declaration, each cite that
+  starts inside that declaration is shown as the whole declaration. This runs from its
+  decorators (the `@` lines directly above the def/class line) to the end of its block. A
+  declaration longer than the cite cap (40 lines) is shown as a 40-line window from the cite's
+  first line, moved up when it would pass the declaration's end. Such an excerpt is marked
+  `(window: lines a–b of c–d)`. Over a window, universal, negative or exhaustive clauses (all,
+  only, never, no arguments, swallowed, either … or) are `partial`. The minted cites and
+  evidence are unchanged: only the verifier's view widens. Verify batches are cut by size as
+  well as by count (at most 20 claims and about 60 % of the verify prompt cap of excerpt text),
+  so the wider excerpts are not shortened back by the prompt cap.
+- **Documentation and behaviour.** A docstring, README sentence or comment proves purpose
+  only. A behaviour clause needs the implementing code lines; otherwise it is `partial`.
+  Behaviour clauses say what is routed, returned, raised, defaulted, read, written or counted,
+  or claim exclusivity or absence. When documentation and code are both shown and disagree,
+  the code wins. A paraphrase that strengthens documentation wording ("can be used without X"
+  → "does not depend on X") is `partial`. The author side has the matching style rule:
+  describe behaviour from code, not from docstrings.
+- **Own evidence.** Only this claim's excerpts count, never another claim's in the same batch.
+  Position, frequency and universal words need the enclosing loop or def line. "Consistent
+  with" is not support.
+
+**Reason post-check.** The builder checks every `supported` verdict deterministically and
+downgrades it to `partial` on either of two grounds. `VERIFY_REASON_OFF_EXCERPT` applies when
+the reason cites a line number outside the ranges that claim was shown. Line references are
+read as `line 12`, `lines 3-9`, `L12`, `第 12 行`, `第 3–9 行`, `3–9 行`, `行 12` and `path:12`; a
+bare `12 行` is read as a count. `VERIFY_REASON_HEDGED` applies when the reason names a
+limitation, outside backtick-quoted code: 仅当, 只在, 仅在, 但, 未展示, 未显示, 除了, only
+when/if/for, except (not Python's `except X:`), not shown, but, however, unless. The verdict
+record keeps the ranges shown (`shown`) and the downgrade (`downgrade: { from, code, detail
+}`). The independent checker re-derives both from the reason and those ranges. It also checks
+that each shown range holds the first line of one of the claim's cites and that every cite was
+shown. These are verdict codes, not rejection codes: a downgraded claim stays projected as
+`partly-verified`.
+
 ## Validation rejection codes
 
 `CITE_MISSING`, `CITE_FILE_UNKNOWN`, `CITE_FILE_UNREADABLE` (no exact text or digest
@@ -215,7 +299,13 @@ mismatch), `CITE_RANGE_INVALID`, `CITE_RANGE_TOO_LONG`, `CITE_EVIDENCE_UNKNOWN`,
 `TEXT_EMPTY`, `TEXT_TOO_LONG`, `COUNT_OUT_OF_RANGE`, `UNKNOWN_NODE`, `NOT_IN_BATCH`,
 `UNKNOWN_EDGE`, `UNKNOWN_RELATION`, `EDGE_NOT_CONNECTING`, `RELATION_NOT_BETWEEN_REGIONS`,
 `REGION_KEY_DUPLICATE`, `REGION_PATH_UNKNOWN`, `REGION_PATH_OVERLAP`, `UNKNOWN_REGION`,
-`SCENARIO_KEY_DUPLICATE`, `FORBIDDEN_SHAPE`, `INSTRUCTION_TEXT`, `UNKNOWN_CLAIM`; after
+`SCENARIO_KEY_DUPLICATE`, `FORBIDDEN_SHAPE`, `INSTRUCTION_TEXT`, `UNKNOWN_CLAIM`,
+`TEXT_RESTATES_SOURCE` (an object summary or role, an edge reason or a step reason whose
+content words, after stopwords and punctuation, are at least 80 % identifiers of its own cited
+lines — the call, the imported names, the assignment target, a field list — or caller and
+endpoint names, with at most 3 other content words), `SCENARIO_IMPORT_ONLY` (every edge step
+of a scenario follows an import edge, and neither its label nor its description is about
+imports or dependencies); after
 validation: `VERIFY_UNSUPPORTED` (still unsupported after revision), `REVISION_WITHDRAWN`,
 `HOST_FAILED` (the stage's call failed), `BUDGET_EXHAUSTED` (the call was not made).
 A rejection names the JSON path of the item (`regions[2].paths[0]`), the code and a
@@ -289,12 +379,22 @@ claims or `ev_auth_*` evidence is refused before any host call: enrich the sourc
 or the base model instead. Minting never reuses an evidence record without re-slicing it.
 Every timestamp written by the run, including obligation history, is the injected `now`
 (`0` is a valid `now`). When no region survives validation the hierarchy is not re-cut,
-`meta.landing` and `defaultScope` are left unchanged, and the run reports it.
+`meta.landing`, `defaultScope`, `defaultFocus` and `defaultOpen` are left unchanged, and the run reports it.
 
 The verifier's verdict is a separate, weaker signal and lives in
 `meta.authoring.verdicts`, never in `support` or `review`.
 
 ## Regions
+
+Regions cover the **conceptual core** only: the files of the main mechanism, typically
+8–20, grouped into 3–6 responsibilities. Every unit no region lists goes to the builder's
+container `region_unassigned`, labelled **核心之外**: it stays in the model and in the
+tree, is counted in `coverage.files.total` (not in `inRegions`), and is listed in
+`regionPlan.unassignedFiles`. Its description is the claim `cl_auth_region_unassigned`,
+built from `scope.outside`, verified and graded like any region description; a
+`scope.outside` with nothing outside the core is a final `UNKNOWN_REGION` rejection. The
+selection is the agent's and is not complete (`meta.authoring.scope.incomplete: true`);
+the workbench says so under the region list, with the counts.
 
 Regions become top-level containers `region_<key>` with `sourceRole: "authored-region"`,
 `kind: "container"`, `parentId: null`, `level: 1`, `group` = its own id, a `color` from a
@@ -307,17 +407,22 @@ under a region gets `group: "region_<key>"` and is coloured by it. The original 
 container and its group stay top-level and keep only what no region holds (for example
 the external-dependency scope).
 
-A region path is a directory, a file, or a **split entry** `"<file path>::<qualified name>"`
-naming one top-level declaration of a file, so one large file can be divided by
-responsibility (a single training script holding model, optimiser and run loop). The
-units of assignment are files, except that a file named by at least one split entry is
-replaced by its top-level declarations. A unit's region is the most specific matching
-entry: an exact split entry, else the most specific file or directory path. A split file's
-own module node, and every declaration no split entry names, go to the region its path
-falls in, or, when no path covers it, to the region holding most of its declarations
-(ties: earlier region). Units no entry covers go to `region_unassigned` (label 未归类),
-created only when needed. A split entry naming a nested or unknown declaration is
-`REGION_PATH_UNKNOWN`; two regions listing the identical entry is `REGION_PATH_OVERLAP`.
+A region path is a directory, a file, a **split entry** `"<file path>::<qualified name>"`
+naming one top-level declaration of a file, or a **module-level block**
+`"<file path>::L<start>-<end>"` naming lines of a file that no top-level declaration
+covers (a script's top-level run code), so one large file can be divided by
+responsibility. The units of assignment are files, except that a file named by at least
+one split or block entry is replaced by its top-level declarations and its blocks. A unit's
+region is the most specific matching entry: an exact split entry, else the most specific
+file or directory path. A split file's own module node follows its first block (lowest
+start line) unless a region lists the file path itself; otherwise it, and every
+declaration no split entry names, go to the region its path falls in, or, when no path
+covers it, to the region holding most of its declarations (ties: earlier region). Units
+no entry covers go to `region_unassigned` (核心之外, above), created only when needed. A split
+entry naming a nested or unknown declaration, or a block outside the file or overlapping a
+top-level declaration, is `REGION_PATH_UNKNOWN`; two regions listing the identical entry,
+or two overlapping blocks, is `REGION_PATH_OVERLAP`. Blocks are recorded as
+`regionPlan.assignments` keys; no node is minted for them.
 
 Then the original tree is re-cut: the highest container whose units all belong to one
 region moves, with its whole subtree and its ids, under that region. A container whose
@@ -342,18 +447,46 @@ Presentation fields are a deterministic function of the claims and `meta.authori
 - **Node with a role:** `summary` ← summary claim, `description` ← role claim,
   `interface` ← interface claim, each only when its own claim survives; previous values
   are kept in `derivedSummary` / `derivedDescription`; `interpretation`.
+  `authoredInputs` / `authoredOutputs` are the inputs and outputs read back from the final
+  (revised, if revised) interface claim text — split at its last ` | `, items at `; `, `—`
+  empty — as arrays; an empty side is omitted, and both are removed when the interface claim
+  is gone or has no such tail. `interpretation.fields.authoredInputs` / `authoredOutputs` name
+  the interface claim, so they carry its grade and cites. Validation replaces any `|`, `;`
+  or `→` inside an item by `, `, so the text always reads back. They are agent
+  interpretation; the parser's `inputs` / `outputs` (derived parameters and returns) are
+  never changed, and every surface shows the two apart.
 - **Edge with a reason:** `description` ← reason; previous value in `derivedDescription`;
   `interpretation`. `evidenceStatus` keeps its derived meaning.
 - **Scenario:** a flow `scenario_<key>` with `kind: "authored-scenario"`, `label`,
   `title`, `description`, `nodes`, `edgeIds`, `anchorId`, `intent: "scenario"`, and
   `steps: [{ nodeId, edgeId, direction, resolution, reason, claimIds, evidenceIds }]`;
-  authored scenarios come first in `model.flows`, generated guides stay after them.
-- **Document** `auth_overview`: title 如何阅读 <title>, `status: "authored-reading-guide"`,
-  Markdown built from the brief, regions, start-here and scenarios, each statement followed
-  by its `path:Lstart-Lend` citations.
+  authored scenarios come first in `model.flows`, generated guides stay after them. Each
+  projected scenario carries `guideId: "auth_guide_<key>"`.
+- **Object role label:** an accepted object's optional `label` (≤ `LIMITS.objectLabel`) is
+  projected as `node.roleLabel` while the object keeps a projected claim. It is a name
+  (代理命名), never graded, shown only on a trusted layer on every surface.
+- **Documents** `auth_guide_<key>`: one reading guide per projected scenario, title
+  阅读导览 · <label>, `status: "authored-reading-guide"`, `flowId`, `evidenceIds` (≤ 4 cited
+  ranges of the route). A fixed template (route, 图与源码 with files split across regions,
+  how to read edges and the animation, what was not run or measured, navigation, other
+  scenarios, source links, the authoring note) around authored text quoted whole: the
+  scenario description, one reason per step (the step's claim, or the object's summary claim
+  when the step text exceeds `GUIDE_REASON_MAX` or was dropped), the notMeaning claim and the
+  feedback claim prefixed 读者推断：. Grades and per-claim citations stay on the claims.
+- **Presentation of derived text:** on a trusted layer whose `lang` is not `en`, every
+  surface shows parser text (declaration and file summaries, `Source · ` labels, edge and
+  external-dependency notes, automatic guide titles) through the deterministic templates of
+  `src/derived-text.js`; the stored model keeps the English wording, and capability and review
+  checks read the stored text. The workbench folds the automatic guides under 自动导览 when
+  authored scenarios exist.
 - **meta:** `description` ← purpose (previous value in `derivedDescription`),
-  `evidenceNote` extended with the authoring note, `defaultScope: "system"` (the overview
-  of all top-level regions), `landing: "orientation"`, and `authoring` (below).
+  `evidenceNote` extended with the authoring note, `landing: "orientation"`, the opening
+  view, and `authoring` (below). The opening view is the first of `scope.focus`,
+  `startHere`, `entrypoints` (in that order) whose node sits under a core region:
+  `defaultScope` = that region, `defaultFocus` = that node, `defaultOpen` = the containers
+  between them, outermost first; with no such node `defaultScope` is `"system"`. The
+  workbench opens an authored model without a link there, the focus selected
+  (`landOnCore`); the CLI and MCP view builders read the same fields.
 
 `interpretation` is `{ status, claimIds, fields }`: `fields` maps each projected text field
 (`summary`, `description`, `interface`, a step's `reason`) to the one claim id it shows, and
@@ -387,7 +520,7 @@ authored item is counted exactly once as projected, finally rejected or skipped.
   "snapshotId": "…",
   "lang": "zh",
   "host": { "kind": "claude", "model": "…", "effort": "…", "isolation": "bare|user-context|n/a", "authorIdentity": "author:claude:<model>", "verifierIdentity": "verifier:claude:<model>" },
-  "promptVersion": "authoring-prompts/5",
+  "promptVersion": "authoring-prompts/8",
   "createdAt": "ISO-8601",
   "accepted": { "orientation": {}, "objects": [], "relations": {}, "scenarios": {} },
   "revisions": { "<claimId>": { "text": "", "cite": [] } },
@@ -395,12 +528,13 @@ authored item is counted exactly once as projected, finally rejected or skipped.
   "brief": { "title": "", "purpose": { "text": "", "claimId": "", "status": "", "evidenceIds": [] }, "capabilities": [{ "text": "", "claimId": "", "status": "", "evidenceIds": [] }], "inputs": [], "outputs": [], "boundary": [], "audience": "" },
   "regions": [{ "id": "region_<key>", "key": "", "label": "", "description": "", "rationale": "", "color": "", "paths": [], "claimIds": [], "status": "" }],
   "regionPlan": { "assignments": { "<unit>": "region_<key>" }, "dissolved": [{ "id": "", "path": "", "mappedTo": "" }], "unassignedFiles": [] },
+  "scope": { "focus": { "nodeId": "", "from": "scope|startHere|entrypoints" }, "coreFiles": [], "outsideFiles": 0, "incomplete": true },
   "startHere": [{ "nodeId": "", "reason": "", "claimId": "", "status": "" }],
   "entrypoints": [{ "nodeId": "", "reason": "", "claimId": "", "status": "", "proven": false }],
   "objects": [{ "nodeId": "", "claimIds": [] }],
   "regionRelations": [{ "from": "", "to": "", "reason": "", "relationIds": [], "claimId": "", "status": "" }],
   "scenarios": [{ "flowId": "", "claimIds": [] }],
-  "verdicts": { "<claimId>": { "verdict": "supported|partial|unsupported", "reason": "", "verifier": "" } },
+  "verdicts": { "<claimId>": { "verdict": "supported|partial|unsupported", "reason": "", "verifier": "", "shown": [{ "file": "", "lines": [0, 0] }], "downgrade": { "from": "supported", "code": "VERIFY_REASON_OFF_EXCERPT|VERIFY_REASON_HEDGED", "detail": "" } } },
   "rejected": [{ "stage": "", "path": "", "code": "", "detail": "", "final": true }],
   "coverage": {
     "files": { "inRegions": 0, "total": 0 },
@@ -471,13 +605,52 @@ every snapshot file's digest under `--root`, and refusal of an already-enriched 
 
 ## Key-object ranking
 
-Score per non-test, non-generated, non-vendored code node (files and top-level declarations):
-`2·fanIn + fanOut + 3·crossRegionEdges + 6·isEntryCandidate + 4·isStartHere + 2·isPublic`
-over resolved and candidate relations; ties by path. File nodes take at most half of the
-ranked slots (files carry the import edges and would otherwise crowd out declarations on
-large repositories); start-here and entry objects are always ranked. Tests, generated
-files and vendored code are only ranked when a region consists of them. Unranked objects
-keep only derived fields and stay as open obligations.
+Candidates are the non-test, non-generated, non-vendored code nodes: files, top-level
+declarations, methods and nested functions. Of overloads of one name only the longest body
+is a candidate (`implementationOf`), and an async twin (`aX`, `X_async`, `XAsync` beside `X`;
+leading underscores kept, so `_aX` beside `_X`) gives way to its sync sibling.
+
+**Main path** (`mainPath`, shared with the relations and scenarios stages): a shortest-hop
+walk of at most 8 from the roots — the scope focus, start-here and orientation entrypoints
+at hop 0; the core's package-index exports at hop 1; rule-found entry candidates at hop 4
+(5 under examples, samples, demos, scripts, tools or bench directories). When the
+orientation names no code root, all of these start at 0.
+
+- **Package-index exports** (`packageExports`): a top-level declaration that a package index
+  file of the core (`__init__.py`, `index.js`/`.ts`, `mod.rs`, `lib.rs`; not tests, not
+  outside the core) imports by name from a sibling module — the import line, as the
+  relation's evidence excerpt, names it and the imported file declares it. Each index file
+  contributes the one export called or constructed from the most other files, so a list of
+  re-exported data types cannot flood the roots.
+- **Steps:** a resolved or candidate `calls`/`constructs` relation (1); a base class named on
+  a class's declaration line (`class A(B):`, `class A extends B`), bound to the one class of
+  that name in the same file or in exactly one file it imports (1) — a reading aid for the
+  walk, never an edge; a root file to its top-level declarations (1); a declaration to the
+  declarations inside it (2). A method's relations stay on the method.
+- Tests, docs, CI, generated and vendored code are not walked unless a region consists of
+  them.
+
+Score on the main path:
+`8·(9 − hop) + 3·min(8, main-path callees) + 2·min(8, main-path callers) + 2·min(8, ⌊log2(body lines + 1)⌋) + 3·min(4, crossRegionEdges) + marks`;
+off it: `2·fanIn + fanOut + 3·crossRegionEdges + marks`, with marks =
+`6·isEntryCandidate + 4·isStartHere + 2·isPublic`. Tiers: core (a node in a region other
+than `unassigned`) on the main path, core off it, then outside the core on and off the main
+path; within a tier by score, then path, line and id.
+
+Selection takes the tiers in order, each under these caps:
+
+- **Per file:** a file holds at most max(3, ⌈max / F⌉) objects, F being the number of files
+  the core main path reaches, so one large file or one root's cluster cannot take the first
+  hops. Items held back by this cap fill what their tier leaves before the next tier starts.
+- **File nodes:** at most ⌊max/6⌋.
+- **Shared code:** type, config, constant, error, serialization and utility files,
+  `…Error`/`…Config`/`…Settings`-style classes, and leaf declarations used from three or
+  more files take at most max(2, ⌊max/12⌋).
+
+Start-here, focus and entry objects are always ranked. Tests, generated files and vendored
+code are only ranked when a region consists of them. Unranked objects keep only derived
+fields and stay as open obligations. `enrich` resolves regions for the ranking with one
+`regionResolver` (the rule of `regionOfNode`).
 
 ## Vendored code
 
@@ -510,10 +683,11 @@ so the licence signals cannot fire for it.
   naming the claim.
 - Every projected text equals its claim; every claim's evidence exists in this snapshot.
 - No derived relation, resolution or excerpt differs from the base model.
-- Every unit (file, or top-level declaration of a split file) is in exactly one region;
-  3–8 authored regions; distinct colours.
+- Every unit (file, top-level declaration or module-level block of a split file) is in
+  exactly one region or in 核心之外; 3–6 authored regions; distinct colours.
 - Every scenario step traverses an existing edge between its two nodes, or is a narrative
   step with a citation, shown as such; every scenario has at least one edge step.
-- The landing view shows the regions and the brief, not a file listing.
+- The landing view opens inside the core region holding the focus, the focus selected;
+  the orientation panel shows the regions, the brief and the core/outside counts.
 - Rejected, unverified and skipped work is reported, never dropped from the denominator.
 - `deepMapReady` stays false.

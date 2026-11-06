@@ -587,24 +587,40 @@
     const resourceFailure = message => { throw Object.assign(new Error(message + " Complete indexing stopped; choose a narrower source or explicitly request preview mode."), { code: "RESOURCE_LIMIT" }); };
 
     const report = { ...(options.report && typeof options.report === "object" ? options.report : {}), analyzer: options.report?.syntax?.engine === "tree-sitter" ? "skylense-syntax-v1" : "skylense-static-v2", mode: complete ? "complete" : "preview", limits, inputEntries: entries.length, acceptedFiles: 0, analyzedFiles: 0, metadataOnlyFiles: 0, textBytes: 0, truncatedFiles: 0, skipped: Array.isArray(options.report?.skipped) ? options.report.skipped.slice(0, 1000) : [], warnings: Array.isArray(options.report?.warnings) ? options.report.warnings.slice(0, 1000) : [], unresolved: [], capabilities: { hierarchy: "Filesystem and source declaration boundaries for accepted paths; syntax nesting when a supported parser is available", symbols: "Supported syntax-tree declarations, lexical fallbacks and authored document headings; parser coverage is reported per file", relationships: "Included static import/link/resource references, declared external dependencies, and conservatively bound call sites", execution: false, aiInference: false, unsupported: "Other text is previewed; binary/PDF/image/archive contents are metadata only. Literal JS dynamic imports and re-exports are supported. Computed targets, dynamic member dispatch, notebook cells and arbitrary-language runtime call graphs are not resolved; configured path resolution depends on included manifests. Python bare calls may abstain for shadowing, ambiguity or missing sources." } };
-    let symbolsUsed = 0, evidenceBytes = 0, evidenceTruncated = 0;
+    let symbolsUsed = 0, evidenceBytes = 0, evidenceReferenceBytes = 0, evidenceTruncated = 0;
     const sourceLines = new Map(), excerptCache = new Map();
+    /* One excerpt per distinct source span, shared by reference: each declaration,
+       container and relation citing the span gets its own evidence object holding the
+       same string. A complete build charges a span once, for the text it retains; a
+       minified line cited by thousands of declarations and calls is one excerpt, not
+       thousands. What every reference repeats in the export is the export's own bound,
+       and those references alone already exceeding it ends the build here rather than
+       after serializing a model that cannot fit. A preview charges every reference,
+       because its budget decides how much excerpt text the bounded export carries. */
     function evidence(file, text, start, end, url) {
       if (!sourceLines.has(file)) sourceLines.set(file, indexLines(text));
       const key = file + "\0" + start + "\0" + end;
       let cached = excerptCache.get(key);
+      const charged = !cached || !complete;
       if (!cached) {
         const item = lineEvidence(file, sourceLines.get(file), start, end, url), bytes = encoder.encode(item.excerpt);
         const clipped = truncateBytes(item.excerpt, 2048, bytes);
         cached = { item: { ...item, excerpt: clipped.text }, byteLength: bytes.length, clipped };
-        // Scratch data belongs to this build only. Cap retained previews, not
-        // graph facts; every uncached reference follows the same extraction.
-        if (excerptCache.size < 8192) excerptCache.set(key, cached);
+        // A complete build keeps every span: the cache is the retained text the
+        // ledger charged. A preview caps its scratch copies, not graph facts; every
+        // uncached reference follows the same extraction.
+        if (complete || excerptCache.size < 8192) excerptCache.set(key, cached);
       }
-      const item = { ...cached.item }, remaining = Math.max(0, limits.maxEvidenceBytes - evidenceBytes);
-      if (complete && remaining < Math.min(2048, cached.byteLength)) resourceFailure("Source evidence safety ceiling reached.");
-      const clipped = remaining >= 2048 ? cached.clipped : { ...truncateBytes(cached.clipped.text, remaining), truncated: cached.byteLength > remaining };
-      evidenceBytes += clipped.bytes;
+      const item = { ...cached.item };
+      let clipped = cached.clipped;
+      if (charged) {
+        const remaining = Math.max(0, limits.maxEvidenceBytes - evidenceBytes);
+        if (complete && remaining < Math.min(2048, cached.byteLength)) resourceFailure("Source evidence safety ceiling reached.");
+        if (remaining < 2048) clipped = { ...truncateBytes(cached.clipped.text, remaining), truncated: cached.byteLength > remaining };
+        evidenceBytes += clipped.bytes;
+      }
+      evidenceReferenceBytes += clipped.bytes;
+      if (complete && evidenceReferenceBytes > limits.maxSerializedBytes - 4096) resourceFailure("Source evidence cited by the graph exceeds the " + (limits.maxSerializedBytes / 1024 / 1024) + " MiB model export ceiling.");
       if (clipped.truncated) { item.excerpt = clipped.text; item.excerptTruncated = true; evidenceTruncated++; }
       return item;
     }
@@ -764,8 +780,11 @@
           hierarchy.push(boundary); value.boundaries.set(index, boundary); symbolContainers++; symbolParent = boundary.id; symbolLevel++;
         }
         const bodyEnd = Math.max(symbol.endLine, Math.min(symbol.bodyEndLine || symbol.endLine, symbol.line + 31));
-        const clonedContract = preview.sourceContract ? JSON.parse(JSON.stringify(preview.sourceContract)) : undefined;
-        nodes.push({ id: symbolId, label: symbol.name, qualifiedName: preview.qualifiedName, path, kind: symbol.kind === "section" ? "document" : symbol.kind === "struct" ? "class" : ["class", "function", "interface", "module"].includes(symbol.kind) ? symbol.kind : "schema", sourceRole: "symbol", parentId: symbolParent, group: rootId, level: symbolLevel, summary: symbol.summary || `${preview.qualifiedName} · ${symbol.kind} · lines ${symbol.line}–${symbol.bodyEndLine || symbol.endLine}. Static source declaration; not a runtime trace.`, functions: [], inputs: preview.inputs || [], outputs: preview.outputs || [], ...(clonedContract ? { sourceContract: clonedContract } : {}), documentIds: [...value.node.documentIds], evidenceStatus: "source-text", evidence: [evidence(path, value.text, symbol.line, bodyEnd, value.url)], sourceSpan: { lineStart: symbol.line, lineEnd: symbol.bodyEndLine || symbol.endLine }, ...(value.node.url ? { url: value.node.url } : {}) });
+        // One contract per declaration: the symbol node carries it, and the
+        // file's functions[] entry reaches it through the nodeId set below.
+        const contract = preview.sourceContract;
+        delete preview.sourceContract;
+        nodes.push({ id: symbolId, label: symbol.name, qualifiedName: preview.qualifiedName, path, kind: symbol.kind === "section" ? "document" : symbol.kind === "struct" ? "class" : ["class", "function", "interface", "module"].includes(symbol.kind) ? symbol.kind : "schema", sourceRole: "symbol", parentId: symbolParent, group: rootId, level: symbolLevel, summary: symbol.summary || `${preview.qualifiedName} · ${symbol.kind} · lines ${symbol.line}–${symbol.bodyEndLine || symbol.endLine}. Static source declaration; not a runtime trace.`, functions: [], inputs: preview.inputs || [], outputs: preview.outputs || [], ...(contract ? { sourceContract: contract } : {}), documentIds: [...value.node.documentIds], evidenceStatus: "source-text", evidence: [evidence(path, value.text, symbol.line, bodyEnd, value.url)], sourceSpan: { lineStart: symbol.line, lineEnd: symbol.bodyEndLine || symbol.endLine }, ...(value.node.url ? { url: value.node.url } : {}) });
         preview.nodeId = symbolId; value.symbolNodes.set(index, symbolId); navigableSymbols++;
         if (collection === documentFiles) documentNavigation++;
       }
@@ -1129,7 +1148,7 @@
       report.emptySource = true;
       report.warnings.push("The selected folder contained no included source files.");
     }
-    report.evidenceBytes = evidenceBytes; report.truncatedExcerpts = evidenceTruncated;
+    report.evidenceBytes = evidenceBytes; report.evidenceReferenceBytes = evidenceReferenceBytes; report.truncatedExcerpts = evidenceTruncated;
     if (evidenceTruncated) report.warnings.push("Some excerpts are partial because of preview budgets; bounded source previews remain in documents.");
     report.truncated = Boolean(evidenceTruncated || (symbolsUsed - documentSymbols) >= limits.maxSymbolsTotal || options.report?.truncated || report.truncatedFiles || report.warnings.some(item => typeof item === "string" && /limited|budget/i.test(item)) || report.skipped.some(item => /limit|budget/i.test(item.reason || "")) || edgeCap);
     report.previewTruncated = Boolean(evidenceTruncated || documents.some(doc => doc.previewTruncated));
@@ -1180,9 +1199,16 @@
     const model = { meta: { id: "ingest_" + hash(source + "\0" + title), title, description: "Automatically collected source hierarchy and bounded static reference analysis.", version: 1, source, revision, sourceFolder: title, contentProvenance: "generated", ...(safeUrl(options.url) ? { repository: safeUrl(options.url) } : {}), evidenceNote: "Automatically analyzed source text. Imports and hyperlinks are lexical candidates resolved against included files; Call-site bindings report their static or lexical provenance and do not form a complete runtime call graph. No code was executed and no runtime flow is inferred. Excerpts may be partial when preview budgets are reached; bounded source previews are available in documents. Preview limits, skipped files and unresolved references are recorded in the ingestion report.", defaultScope: "system", defaultOpen: [], ingestion: report, count: { groups: 1, containers: hierarchy.length, nodes: nodes.length, edges: edges.length, functions: report.symbols, documents: documents.length } }, groups: [group], hierarchy, nodes, edges, flows: [], documents };
     root.SkylenseSourceInsights?.enrich(model);
     // Escaped JSON can be much larger than UTF-8 source text (for example logs
-    // containing backslashes or control characters). Cap the actual pretty JSON
-    // used by CLI/browser exports, keeping every graph identity and relationship.
-    const outputSize = () => encoder.encode(JSON.stringify(model, null, 2)).length + 1;
+    // containing backslashes or control characters). Cap the compact JSON every
+    // writer can fall back to (lib/export-ceiling.mjs writes indentation only while
+    // it fits), keeping every graph identity and relationship.
+    // A model past the engine's string limit cannot be exported at all: the
+    // serializer's RangeError is the export ceiling, reported as one.
+    const outputSize = () => {
+      let text;
+      try { text = JSON.stringify(model); } catch (error) { if (error instanceof RangeError) resourceFailure("Graph metadata and source evidence exceed the " + (limits.maxSerializedBytes / 1024 / 1024) + " MiB model export ceiling: the model is too large to serialize."); throw error; }
+      return encoder.encode(text).length + 1;
+    };
     const exportTarget = limits.maxSerializedBytes - 4096;
     let serializedBytes = outputSize();
     if (serializedBytes > exportTarget) {
@@ -1216,11 +1242,6 @@
       for (const node of nodes) if (node.documentIds?.some(docId => trimmed.has(docId))) node.previewTruncated = true;
       if (outputSize() > exportTarget) resourceFailure("Graph metadata exceeds the " + (limits.maxSerializedBytes / 1024 / 1024) + " MiB export ceiling.");
     }
-    report.serializedBytes = 0;
-    report.serializedBytes = outputSize();
-    // Only this non-negative integer changed in the second measurement. Its
-    // decimal digit growth is the exact UTF-8/pretty-JSON byte delta.
-    report.serializedBytes += String(report.serializedBytes).length - 1;
     if (root.SkylenseModelMigrations) {
       // One store describing what was actually read: the decoded text, the raw
       // byte hash when the reader supplied one, and whether the stored text is
@@ -1269,6 +1290,17 @@
         root.SkylenseModelMigrations.admitModel(model, { sources, origin: "source-analysis" });
       }
     }
+    // The analysis layer is part of every written model. The reported size and the
+    // complete-mode export ceiling are measured on the model as it is returned, not on the
+    // graph before migration added the layer (about a third of the final bytes on vLLM).
+    // The 4 KiB below the ceiling stays reserved for the digest and cache facts the
+    // folder reader adds afterwards; every writer measures its own bytes again.
+    report.serializedBytes = 0;
+    report.serializedBytes = outputSize();
+    // Only this non-negative integer changed in the second measurement. Its
+    // decimal digit growth is the exact UTF-8/compact-JSON byte delta.
+    report.serializedBytes += String(report.serializedBytes).length - 1;
+    if (complete && report.serializedBytes > exportTarget) resourceFailure("The analyzed model with its analysis layer is " + report.serializedBytes + " bytes, over the " + (limits.maxSerializedBytes / 1024 / 1024) + " MiB model export ceiling.");
     if (semanticIndex) for (const [path, map] of semanticPuts) semanticIndex.putSemantic(semanticKeys.get(path), { version: semanticIndex.version, map });
     return model;
   }

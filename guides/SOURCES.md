@@ -29,7 +29,7 @@ Remote requests have timeouts and cancellation. An incomplete GitHub tree, unrea
 Install the downloaded toolkit with Node.js 22+:
 
 ```sh
-npm install --global ./skylense-0.5.0.tgz
+npm install --global ./skylense-0.5.1.tgz
 skylense open /path/to/project
 skylense open https://github.com/danielchen26/Gflownet
 skylense open https://example.com

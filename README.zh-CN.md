@@ -5,18 +5,18 @@
 
 逐层展开结构、追踪上下游、查看源码依据。网页、终端与 Agent 共用同一份模型。
 
-### [在线体验 ↗](https://danielchen26.github.io/skylense-app/app/?open=source) · [下载离线版 ↓](https://github.com/danielchen26/skylense-app/releases/download/v0.5.0/skylense-0.5.0-web-preview.zip)
+### [在线体验 ↗](https://danielchen26.github.io/skylense-app/app/?open=source) · [下载离线版 ↓](https://github.com/danielchen26/skylense-app/releases/download/v0.5.1/skylense-0.5.1-web-preview.zip)
 
 无需账号 · 可离线运行 · 六套主题 · 源码依据
 
-[English](README.md) · [产品主页](https://danielchen26.github.io/skylense-app/) · [发布记录](https://github.com/danielchen26/skylense-app/releases/tag/v0.5.0)
+[English](README.md) · [产品主页](https://danielchen26.github.io/skylense-app/) · [发布记录](https://github.com/danielchen26/skylense-app/releases/tag/v0.5.1)
 </div>
 
 ![Skylense 的真实 autoresearch 流程界面](docs/assets/captures/theme-midnight.png)
 
 ## 三步开始
 
-1. 下载 **[Web ZIP](https://github.com/danielchen26/skylense-app/releases/download/v0.5.0/skylense-0.5.0-web-preview.zip)**。
+1. 下载 **[Web ZIP](https://github.com/danielchen26/skylense-app/releases/download/v0.5.1/skylense-0.5.1-web-preview.zip)**。
 2. 解压 `skylense-web` 文件夹。
 3. 在现代桌面浏览器中打开 **`standalone.html`**。
 
@@ -67,10 +67,10 @@
 
 ## 当前分析范围
 
-Agent 现在可以通过 MCP 或 CLI 使用。下载 [0.5.0 工具包](https://github.com/danielchen26/skylense-app/releases/download/v0.5.0/skylense-0.5.0.tgz)，安装 Node.js 22+，然后执行；把项目路径换成实际存在的目录：
+Agent 现在可以通过 MCP 或 CLI 使用。下载 [0.5.1 工具包](https://github.com/danielchen26/skylense-app/releases/download/v0.5.1/skylense-0.5.1.tgz)，安装 Node.js 22+，然后执行；把项目路径换成实际存在的目录：
 
 ```sh
-npm install -g ./skylense-0.5.0.tgz
+npm install -g ./skylense-0.5.1.tgz
 skylense config --root "/你的项目目录"
 ```
 
